@@ -1,0 +1,22 @@
+Parameters passed as json
+
+/register
+- Inputs: username, password
+
+/login
+- Inputs: username, password
+
+/delete_account
+- Inputs: Nothing
+
+/logout
+- Inputs: Nothing
+
+/retrieve_new_message
+- Inputs: receiver_username,  
+
+//send_message
+- Inputs: latest_message_id, 
+
+//delete_message
+- Inputs: message_id
