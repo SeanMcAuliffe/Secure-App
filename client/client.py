@@ -103,11 +103,12 @@ class TerminalChat:
     @staticmethod
     def http_request(method: str, endpoint: str, data: dict = None) -> dict:
         """Sends an HTTP request to the server and returns the response."""
+        headers={"Content-Type":"application/json"}
         try:
             if method == "GET":
                 r = requests.get(f"http://{SERVER_IP}/{endpoint}")
             elif method == "POST":
-                r = requests.post(f"http://{SERVER_IP}/{endpoint}", json=data)
+                r = requests.post(f"http://{SERVER_IP}/{endpoint}", json=data, headers=headers)
             else:
                 raise ValueError("Invalid HTTP method.")
         except requests.exceptions.ConnectionError:
