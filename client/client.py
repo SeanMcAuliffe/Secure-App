@@ -103,8 +103,6 @@ class TerminalChat:
     @staticmethod
     def http_request(method: str, endpoint: str, data: dict = None) -> dict:
         """Sends an HTTP request to the server and returns the response."""
-        if data:
-            data = json.dumps(data, indent=4)
         try:
             if method == "GET":
                 r = requests.get(f"http://{SERVER_IP}/{endpoint}")
