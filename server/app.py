@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, abort
+from flask import Flask, json, jsonify, request, abort
 from flask_login import login_user, login_required, logout_user, UserMixin, LoginManager, current_user
 from flask_sqlalchemy import SQLAlchemy
 
@@ -45,8 +45,10 @@ def hello_world():
 
 @app.route('/register', methods=['POST'])
 def register():
-    username = request.json.get('username')
-    password = request.json.get('password')
+    incoming_json = request.json
+    json_dict = json.loads(incoming_json)
+    username = json_dict['username']
+    password = json_dict['password']
     if username is None or password is None:
         abort(400) # missing arguments
     if User.query.filter_by(username = username).first() is not None:
@@ -59,8 +61,10 @@ def register():
 
 @app.route('/login', methods=['POST'])
 def login():
-    username = request.json.get('username')
-    password = request.json.get('password')
+    incoming_json = request.json
+    json_dict = json.loads(incoming_json)
+    username = json_dict['username']
+    password = json_dict['password']
     if username is None or password is None:
         abort(400) # missing arguments
 
