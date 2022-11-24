@@ -4,7 +4,7 @@ import random
 from os import system, name
 
 
-SERVER_IP = "0.0.0.0"
+SERVER_IP = "0.0.0.0:5000"
 
 
 class ChatCache:
