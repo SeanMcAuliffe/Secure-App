@@ -8,6 +8,9 @@ SERVER_IP = "0.0.0.0"
 
 
 class ChatCache:
+    """A class for storing a local cache of a chat message history from
+    the server. Will need to be bootstrapped upon client startup, by 
+    refreshing message list, telling server the latest message number is -1. """
     def __init__(self, id, recipient):
         self.id = id
         self.recipient = recipient
@@ -23,6 +26,7 @@ class ChatCache:
         else:
             self.latest_msg = -1
 
+    # Called as a result of refresh_chat()
     def add_msg(self, msg: dict) -> int:
         """Add a dictionary of messages retrieved from the
         server to the cache."""
@@ -30,6 +34,7 @@ class ChatCache:
         self.refresh_latest_msg_num()
         return self.latest_msg
 
+    # Called as a result of send_message()
     def add_msg(self, msg: str) -> int:
         """Add a single message sent by the client to the cache."""
         self.refresh_latest_msg_num()
@@ -37,6 +42,7 @@ class ChatCache:
         self.refresh_latest_msg_num()
         return self.latest_msg
 
+    # Called as a result of delete_message()
     def delete_msg(self, msg_id: int) -> bool:
         """Delete a message from the cache."""
         if msg_id in self.message_history.keys():
@@ -111,6 +117,7 @@ class TerminalChat:
             return None
         return r.json()
 
+    # Endpoint: /register
     def create_account(self, *args: tuple) -> None:
         self.clear_screen()
         print("*** Create a New Account ***")
@@ -131,6 +138,7 @@ class TerminalChat:
         else:
             print("Account creation failed.")
 
+    # Endpoint: /login
     def login(self, *args: tuple) -> None:
         self.clear_screen()
         print("*** Login to SecureChat™ ***")
@@ -151,6 +159,7 @@ class TerminalChat:
             print("Login failed.")
             self.authenticated = True
 
+    # Endpoint: /logout
     def logout(self, *args: tuple) -> None:
         """Sends a request to the server to log out the user."""
         self.clear_screen()
@@ -162,6 +171,7 @@ class TerminalChat:
         else:
             print("Logout failed.")
 
+    # Endpoint /delete_account
     def delete_account(self, *args: tuple) -> None:
         """Sends a request to the server to delete the account."""
         self.clear_screen()
@@ -185,6 +195,7 @@ class TerminalChat:
         else:
             print("Account deletion failed.")
 
+    # Endpoint: /delete_message
     def delete_msg(self, *args: tuple) -> None:
         """Deletes msg number <msg_id> from the currently
         active chat."""
@@ -207,6 +218,7 @@ class TerminalChat:
         else:
             print("Message deletion failed.")
 
+    # Local command
     def delete_chat(self, *args) -> None:
         try:
             chat_id = int(args[0][0])
@@ -219,7 +231,7 @@ class TerminalChat:
         self.active_chat = None
         del self.chat_list[chat_id]
 
-    # TODO: Are we supporting multiple chats?
+    # Local command
     def list_chats(self, *args) -> None:
         """Lists all stored chats"""
         print("\n---- Chat List -----")
@@ -227,7 +239,7 @@ class TerminalChat:
             print(self.chat_list[id].header())
         print("--------------------")
 
-    # TODO: Are we supporting multiple chats?
+    # Local command
     def open_chat(self, *args: tuple) -> None:
         try:
             chat_id = args[0][0]
@@ -240,12 +252,12 @@ class TerminalChat:
         else:
             print("Chat not found.")
 
-    # TODO: Are we supporting multiple chats?
+    # Local command
     def close_chat(self, *args: tuple) -> None:
         """Closes the active chat, returns user to list of all chats."""
         self.active_chat = None
 
-    # TODO: Are we supporting multiple chats?
+    # Local command
     def create_chat(self, *args: tuple) -> None:
         try:
             recipient = str(args[0][0])
@@ -267,6 +279,7 @@ class TerminalChat:
         self.chat_list[new_chat_id] = new_chat
         self.active_chat = self.chat_list[new_chat_id]
 
+    # Endpoint: /send_message
     def send_message(self, *args: tuple) -> None:
         """Sends <msg> to server to be delievered to <recipient>,
         adds the <msg> to the local cache of the chat, or creates
@@ -292,6 +305,7 @@ class TerminalChat:
         else:
             print("Message failed to send.")
 
+    # Endpoint: /retrieve_new_message
     def refresh_chat(self, *args) -> None:
         """Send a request to the server to retrieve all messages since
         <recent_msg_num> for the active chat. This function will also be
@@ -307,6 +321,7 @@ class TerminalChat:
         else:
             print("Failed to refresh chat.")
 
+    # Local command
     def ui_help(self, *args) -> None:
         """Prints the list of commands to the user."""
         print("*** Available commands: *** ")
@@ -319,6 +334,7 @@ class TerminalChat:
             \nrefresh - refreshes the currently active chat \
             \nhelp - prints this message\nexit")
 
+    # Local command
     def exit_client(self, *args) -> None:
         """Encrypt any data to be stored to disk, exit the program."""
         self.ongoing = False
