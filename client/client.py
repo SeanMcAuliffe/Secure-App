@@ -4,7 +4,7 @@ import random
 from os import system, name
 
 
-SERVER_IP = "0.0.0.0:5000"
+SERVER_IP = "127.0.0.1:5000"
 
 
 class ChatCache:
@@ -114,7 +114,7 @@ class TerminalChat:
         except requests.exceptions.ConnectionError:
             print("ERROR: Could not connect to SecureChat™ server.")
             return None
-        return r.json()
+        return r
 
     # Endpoint: /register
     def create_account(self, *args: tuple) -> None:
@@ -156,7 +156,7 @@ class TerminalChat:
             self.password = password
         else:
             print("Login failed.")
-            self.authenticated = True
+            self.authenticated = False
 
     # Endpoint: /logout
     def logout(self, *args: tuple) -> None:
