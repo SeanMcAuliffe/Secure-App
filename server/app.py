@@ -98,9 +98,9 @@ def retrieve_new_message():
     latest_message_id = json_dict['latest_message_id']
     sender_username = json_dict['sender_username']
 
-    current_username = User.query.filter_by(id=current_user.get_id()).username
+    current_username = User.query.filter_by(id=current_user.get_id()).first().username
 
-    sender_id = User.query.filter_by(username = sender_username).first()
+    sender_id = User.query.filter_by(username = sender_username).first().id
 
     receiver_id = current_user.get_id()
 
@@ -158,8 +158,9 @@ def send_message():
 @app.route('/delete_message',methods=['POST'])
 @login_required
 def delete_message():
-
-    message_id = request.json.get('message_id')
+    incoming_json = request.json
+    json_dict = json.loads(incoming_json)
+    message_id = json_dict['message_id']
     user_id = current_user.get_id()
 
     Messages.query.filter_by(id=message_id,sender=user_id).delete()

@@ -39,6 +39,8 @@ class ChatCache:
     def add_msg_single(self, msg: str) -> int:
         """Add a single message sent by the client to the cache."""
         self.refresh_latest_msg_num()
+        #TODO: Refresh messages after each send to determine the new
+        # latest message number
         self.message_history[self.latest_msg + 1] = msg
         self.refresh_latest_msg_num()
         return self.latest_msg
@@ -233,7 +235,7 @@ class TerminalChat:
             print("You must be logged in to delete messages.")
             return
         data = {"message_id": msg_id}
-        r = self.http_request("POST", f"delete_msg/delete_message", data)
+        r = self.http_request("POST", "delete_message", data)
         if r is not None and r.status_code == 200:
             print("Message deleted successfully.")
             self.active_chat.delete_msg(msg_id)
@@ -343,12 +345,24 @@ class TerminalChat:
         <recent_msg_num> for the active chat. This function will also be
         used to bootstrap the cache from the server when the client first
         opens a chat, by sending latest_msg_num = -1."""
-        data = {"latest_message_id": self.active_chat.latest_msg}
+        print("First")
+        data = {"latest_message_id": -1,
+                "sender_username": self.active_chat.recipient}
         r = self.http_request("POST", "retrieve_new_message", data)
         if r is not None and r.status_code == 200:
             messages = r.json()
             for msg in messages:
                 self.active_chat.add_msg_multiple(msg)
+        print("Second")
+        data = {"latest_message_id": -1,
+                "sender_username": self.username}
+        r = self.http_request("POST", "retrieve_new_message", data)
+        if r is not None and r.status_code == 200:
+            messages = r.json()
+            for msg in messages:
+                self.active_chat.add_msg_multiple(msg)
+        elif r is not None and r.status_code == 404:
+            print("No new messages.")
         elif r is not None and r.status_code != 200:
             print("Failed to refresh chat.")
             print(r.text)
