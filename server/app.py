@@ -98,11 +98,14 @@ def retrieve_new_message():
     latest_message_id = json_dict['latest_message_id']
     sender_username = json_dict['sender_username']
 
+    current_username = User.query.filter_by(id=current_user.get_id()).username
+
     sender_id = User.query.filter_by(username = sender_username).first()
 
     receiver_id = current_user.get_id()
 
     messages = Messages.query.filter(Messages.id > latest_message_id).filter(Messages.receiver == receiver_id).filter(Messages.sender == sender_id).all()
+    messages2 = Messages.query.filter(Messages.id > latest_message_id).filter(Messages.receiver == sender_id).filter(Messages.sender == receiver_id).all()
 
     json_list = []
 
@@ -111,6 +114,14 @@ def retrieve_new_message():
         'id':message.id,
         'sender':sender_username,
         'message':message.message,
+        }
+        json_list.append(data)
+
+    for messages2 in messages2:
+        data = {
+        'id':messages2.id,
+        'sender':current_username,
+        'message':messages2.message,
         }
         json_list.append(data)
 
