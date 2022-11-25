@@ -1,0 +1,12 @@
+[
+{"chat_id": 1, "username": "Bob", "history":    [
+                                                {"msg_id": 1, "msg": "Bob: Hello"}, 
+                                                {"msg_id": 2, "msg": "Alice: How are you?"}
+                                                ]
+},
+{"chat_id": 2, "username": "Charlie", "history":[
+                                                {"msg_id": 1, "msg": "Alice: Hi"}, 
+                                                {"msg_id": 2, "msg": "Charlie: What's up?"}
+                                                ]
+}
+]
