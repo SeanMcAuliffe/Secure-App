@@ -96,21 +96,26 @@ def retrieve_new_message():
     incoming_json = request.json
     json_dict = json.loads(incoming_json)
     latest_message_id = json_dict['latest_message_id']
+    sender_username = json_dict['sender_username']
+
+    sender_id = User.query.filter_by(username = sender_username).first()
+
     receiver_id = current_user.get_id()
 
-    messages = Messages.query.filter(Messages.id > latest_message_id).filter(Messages.receiver == receiver_id).all()
+    messages = Messages.query.filter(Messages.id > latest_message_id).filter(Messages.receiver == receiver_id).filter(Messages.sender == sender_id).all()
 
     json_list = []
 
     for message in messages:
         data = {
         'id':message.id,
-        'receiver':message.id,
-        'sender':message.id,
-        'message':message.message
+        'sender':sender_username,
+        'message':message.message,
         }
         json_list.append(data)
 
+    if(len(json_list)==0):
+        abort(404)
 
     return jsonify(json_list)
 
