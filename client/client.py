@@ -84,7 +84,7 @@ class TerminalChat:
             "delete_msg": self.delete_msg,
             "delete_chat": self.delete_chat,
             "list": self.list_chats,
-            "create_chat": self.create_chat,
+            "create": self.create_chat,
             "open": self.open_chat,
             "close": self.close_chat,
             "send": self.send_message,
@@ -104,11 +104,13 @@ class TerminalChat:
     def http_request(method: str, endpoint: str, data: dict = None) -> dict:
         """Sends an HTTP request to the server and returns the response."""
         headers={"Content-Type":"application/json"}
+        data = json.dumps(data, indent=4)
         try:
             if method == "GET":
                 r = requests.get(f"http://{SERVER_IP}/{endpoint}")
             elif method == "POST":
-                r = requests.post(f"http://{SERVER_IP}/{endpoint}", json=data, headers=headers)
+                r = requests.post(f"http://{SERVER_IP}/{endpoint}",
+                                  json=data, headers=headers)
             else:
                 raise ValueError("Invalid HTTP method.")
         except requests.exceptions.ConnectionError:
@@ -130,12 +132,14 @@ class TerminalChat:
         except KeyboardInterrupt:
             return
         data = {"username": username, "password": password}
-        data = json.dumps(data, indent=4)
         r = self.http_request("POST", "register", data)
-        if r and r.status_code == 200:
+        if r is not None and r.status_code == 200:
             print("Account created successfully.")
-        else:
+        elif r is not None and r.status_code != 200:
             print("Account creation failed.")
+            print(r.text)
+        else:
+            print("Server connection failed.")
 
     # Endpoint: /login
     def login(self, *args: tuple) -> None:
@@ -147,16 +151,18 @@ class TerminalChat:
         except KeyboardInterrupt:
             return
         data = {"username": username, "password": password}
-        data = json.dumps(data, indent=4)
         r = self.http_request("POST", "login", data)
-        if r and r.status_code == 200:
+        if r is not None and r.status_code == 200:
             print("Login successful.")
             self.authenticated = True
             self.username = username
             self.password = password
-        else:
+        elif r is not None and r.status_code != 200:
             print("Login failed.")
             self.authenticated = False
+            print(r.text)
+        else:
+            print("Server connection failed.")
 
     # Endpoint: /logout
     def logout(self, *args: tuple) -> None:
@@ -164,11 +170,14 @@ class TerminalChat:
         self.clear_screen()
         print("*** Logout of SecureChat™ ***")
         r = self.http_request("GET", "logout")
-        if r and r.status_code == 200:
+        if r is not None and r.status_code == 200:
             print("Logout successful.")
             self.authenticated = False
-        else:
+        elif r is not None and r.status_code != 200:
             print("Logout failed.")
+            print(r.text)
+        else:
+            print("Server connection failed.")
 
     # Endpoint /delete_account
     def delete_account(self, *args: tuple) -> None:
@@ -187,12 +196,14 @@ class TerminalChat:
         except KeyboardInterrupt:
             return
         data = {"password": password}
-        data = json.dumps(data, indent=4)
         r = self.http_request("POST", "delete_account", data)
-        if r and r.status_code == 200:
+        if r is not None and r.status_code == 200:
             print("Account deleted successfully.")
-        else:
+        elif r is not None and r.status_code != 200:
             print("Account deletion failed.")
+            print(r.text)
+        else:
+            print("Server connection failed.")
 
     # Endpoint: /delete_message
     def delete_msg(self, *args: tuple) -> None:
@@ -209,13 +220,16 @@ class TerminalChat:
         if not self.authenticated:
             print("You must be logged in to delete messages.")
             return
-        data = json.dumps({"message_id": msg_id}, indent = 4)
+        data = {"message_id": msg_id}
         r = self.http_request("POST", f"delete_msg/delete_message", data)
-        if r and r.status_code == 200:
+        if r is not None and r.status_code == 200:
             print("Message deleted successfully.")
             self.active_chat.delete_msg(msg_id)
-        else:
+        elif r is not None and r.status_code != 200:
             print("Message deletion failed.")
+            print(r.text)
+        else:
+            print("Server connection failed.")
 
     # Local command
     def delete_chat(self, *args) -> None:
@@ -260,7 +274,7 @@ class TerminalChat:
     def create_chat(self, *args: tuple) -> None:
         try:
             recipient = str(args[0][0])
-        except (IndexError, ValueError):
+        except (IndexError, ValueError, TypeError):
             print("Please specify a valid recipient.")
             return
         """Maybe we need an endpoint to create a new chat
@@ -295,14 +309,16 @@ class TerminalChat:
             print("You must be logged in to send messages.")
             return
         data = {"receiver_username": self.active_chat.recipient, "message": msg}
-        data = json.dumps(data, indent=4)
         r = self.http_request("POST", "send_message", data)
-        if r and r.status_code == 200:
+        if r is not None and r.status_code == 200:
             # TODO: Server should echo back the last message number after
             # receiving this new message, so that cache doesn't get out of sync
             self.active_chat.add_msg(msg)
-        else:
+        elif r is not None and r.status_code != 200:
             print("Message failed to send.")
+            print(r.text)
+        else:
+            print("Serer connection failed.")
 
     # Endpoint: /retrieve_new_message
     def refresh_chat(self, *args) -> None:
@@ -310,15 +326,17 @@ class TerminalChat:
         <recent_msg_num> for the active chat. This function will also be
         used to bootstrap the cache from the server when the client first
         opens a chat, by sending latest_msg_num = -1."""
-        data = self.active_chat.last_msg_num
-        data = json.dumps(data, indent=4)
+        data = self.active_chat.latest_msg
         r = self.http_request("POST", "retrieve_new_message", data)
-        if r and r.status_code == 200:
+        if r is not None and r.status_code == 200:
             messages = r.json()
             for msg in messages:
                 self.active_chat.add_msg(msg)
-        else:
+        elif r is not None and r.status_code != 200:
             print("Failed to refresh chat.")
+            print(r.text)
+        else:
+            print("Server connection failed.")
 
     # Local command
     def ui_help(self, *args) -> None:
