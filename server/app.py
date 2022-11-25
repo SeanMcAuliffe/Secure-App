@@ -93,7 +93,9 @@ def logout():
 @app.route('/retrieve_new_message',methods=['POST'])
 @login_required
 def retrieve_new_message():
-    latest_message_id = request.json.get('latest_message_id')
+    incoming_json = request.json
+    json_dict = json.loads(incoming_json)
+    latest_message_id = json_dict['latest_message_id']
     receiver_id = current_user.get_id()
 
     messages = Messages.query.filter(Messages.id > latest_message_id).filter(Messages.receiver == receiver_id).all()
@@ -115,13 +117,15 @@ def retrieve_new_message():
 @app.route('/send_message',methods=['POST'])
 @login_required
 def send_message():
-    receiver_username = request.json.get('receiver_username')
+    incoming_json = request.json
+    json_dict = json.loads(incoming_json)
+    receiver_username = json_dict['receiver_username']
     receiver_id = User.query.filter_by(username = receiver_username).first()
 
     if not receiver_id:
         return 'No Receiver'
 
-    message = request.json.get('message')
+    message = json_dict['message']
 
     if not message:
         return 'Error Empty Message'

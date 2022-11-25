@@ -19,7 +19,7 @@ class ChatCache:
 
     def refresh_latest_msg_num(self) -> int:
         """Get the latest message number."""
-        if self.message_history:
+        if len(self.message_history.keys()) > 0:
             nums = list(self.message_history.keys())
             nums.sort()
             self.latest_msg = nums[-1]
@@ -58,11 +58,12 @@ class ChatCache:
 
     def __str__(self):
         """Return a string representation of the cache."""
-        output = ""
-        if self.message_history:
-            for msg_num in list(self.message_history.keys()).sort():
-                output += f"{msg_num}: {self.message_history[msg_num]}\n"
-        return output
+        # output = ""
+        # if len(self.message_history.keys()) > 0:
+        #     for msg_num in list(self.message_history.keys()).sort():
+        #         output += f"{msg_num}: {self.message_history[msg_num]}\n"
+        # return output
+        return str(self.message_history)
 
 
 class TerminalChat:
@@ -73,6 +74,7 @@ class TerminalChat:
         self.chat_list = {}
         self.authenticated = False
         self.username = None
+        self.cookie = None
         #TODO don't store passsword locally for account deletion
         # Move password authentication to server
         self.password = None
@@ -100,14 +102,16 @@ class TerminalChat:
         else:
             _ = system('clear')
 
-    @staticmethod
-    def http_request(method: str, endpoint: str, data: dict = None) -> dict:
+    def http_request(self, method: str, endpoint: str, data: dict = None) -> dict:
         """Sends an HTTP request to the server and returns the response."""
-        headers={"Content-Type":"application/json"}
+        if self.cookie is None:
+            headers={"Content-Type":"application/json"}
+        else:
+            headers={"Content-Type":"application/json", "Cookie": self.cookie}
         data = json.dumps(data, indent=4)
         try:
             if method == "GET":
-                r = requests.get(f"http://{SERVER_IP}/{endpoint}")
+                r = requests.get(f"http://{SERVER_IP}/{endpoint}", headers=headers)
             elif method == "POST":
                 r = requests.post(f"http://{SERVER_IP}/{endpoint}",
                                   json=data, headers=headers)
@@ -157,9 +161,13 @@ class TerminalChat:
             self.authenticated = True
             self.username = username
             self.password = password
+            cookie = r.headers["Set-Cookie"]
+            end = cookie.find(';', 0)
+            self.cookie = cookie[0:end]
         elif r is not None and r.status_code != 200:
             print("Login failed.")
             self.authenticated = False
+            self.cookie = None
             print(r.text)
         else:
             print("Server connection failed.")
@@ -173,6 +181,8 @@ class TerminalChat:
         if r is not None and r.status_code == 200:
             print("Logout successful.")
             self.authenticated = False
+            self.active_chat = None
+            self.cookie = None
         elif r is not None and r.status_code != 200:
             print("Logout failed.")
             print(r.text)
@@ -195,10 +205,11 @@ class TerminalChat:
                 return
         except KeyboardInterrupt:
             return
-        data = {"password": password}
-        r = self.http_request("POST", "delete_account", data)
+        r = self.http_request("GET", "delete_account")
         if r is not None and r.status_code == 200:
             print("Account deleted successfully.")
+            self.authenticated = False
+            self.cookie = None
         elif r is not None and r.status_code != 200:
             print("Account deletion failed.")
             print(r.text)
@@ -281,6 +292,8 @@ class TerminalChat:
         or maybe the send_message endpoint does this implicitly."""
         print(f"Creating chat with {recipient}...")
         for chat in self.chat_list:
+            print(chat.recipient)
+            print(recipient)
             if chat.recipient == recipient:
                 print("Chat already exists.")
                 self.active_chat = chat
@@ -298,7 +311,10 @@ class TerminalChat:
         adds the <msg> to the local cache of the chat, or creates
         a new chat if none exists."""
         try:
-            msg = str(args[0][0])
+            msg = ""
+            words = [word for word in args[0]]
+            for word in words:
+                msg = msg + word + " "
         except (IndexError, ValueError):
             print("No valid message provided.")
             return
@@ -313,6 +329,7 @@ class TerminalChat:
         if r is not None and r.status_code == 200:
             # TODO: Server should echo back the last message number after
             # receiving this new message, so that cache doesn't get out of sync
+            print("Message sent successfully.")
             self.active_chat.add_msg(msg)
         elif r is not None and r.status_code != 200:
             print("Message failed to send.")
@@ -326,7 +343,7 @@ class TerminalChat:
         <recent_msg_num> for the active chat. This function will also be
         used to bootstrap the cache from the server when the client first
         opens a chat, by sending latest_msg_num = -1."""
-        data = self.active_chat.latest_msg
+        data = {"latest_message_id": self.active_chat.latest_msg}
         r = self.http_request("POST", "retrieve_new_message", data)
         if r is not None and r.status_code == 200:
             messages = r.json()
@@ -389,11 +406,14 @@ class TerminalChat:
                 self.commands[cmd](args)
             else:
                 print("Invalid command. Type 'help' for a list of commands.")
+        # End of main event loop, clean up and exit
+        self.logout()
 
 
 def main():
     client = TerminalChat()
     client.run()
+
 
 
 if __name__ == "__main__":
