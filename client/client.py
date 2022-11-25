@@ -27,15 +27,16 @@ class ChatCache:
             self.latest_msg = -1
 
     # Called as a result of refresh_chat()
-    def add_msg(self, msg: dict) -> int:
+    def add_msg_multiple(self, msg: dict) -> int:
+        #TODO: Parse the incoming messages and add them to the cache.
         """Add a dictionary of messages retrieved from the
         server to the cache."""
-        self.message_history[msg['id']] = msg["message"]
+        self.message_history[msg['id']] = msg["sender"] + ": " + msg["message"]
         self.refresh_latest_msg_num()
         return self.latest_msg
 
     # Called as a result of send_message()
-    def add_msg(self, msg: str) -> int:
+    def add_msg_single(self, msg: str) -> int:
         """Add a single message sent by the client to the cache."""
         self.refresh_latest_msg_num()
         self.message_history[self.latest_msg + 1] = msg
@@ -291,9 +292,8 @@ class TerminalChat:
         """Maybe we need an endpoint to create a new chat
         or maybe the send_message endpoint does this implicitly."""
         print(f"Creating chat with {recipient}...")
-        for chat in self.chat_list:
-            print(chat.recipient)
-            print(recipient)
+        for chat_id in self.chat_list.keys():
+            chat = self.chat_list[chat_id]
             if chat.recipient == recipient:
                 print("Chat already exists.")
                 self.active_chat = chat
@@ -330,7 +330,7 @@ class TerminalChat:
             # TODO: Server should echo back the last message number after
             # receiving this new message, so that cache doesn't get out of sync
             print("Message sent successfully.")
-            self.active_chat.add_msg(msg)
+            self.active_chat.add_msg_single(msg)
         elif r is not None and r.status_code != 200:
             print("Message failed to send.")
             print(r.text)
@@ -348,7 +348,7 @@ class TerminalChat:
         if r is not None and r.status_code == 200:
             messages = r.json()
             for msg in messages:
-                self.active_chat.add_msg(msg)
+                self.active_chat.add_msg_multiple(msg)
         elif r is not None and r.status_code != 200:
             print("Failed to refresh chat.")
             print(r.text)
