@@ -59,6 +59,8 @@ Response:
 def register():
     incoming_json = request.json
     json_dict = json.loads(incoming_json)
+    if 'username' not in json_dict or 'password' not in json_dict or 'pubkey' not in json_dict:
+        abort(400)
     username = json_dict['username']
     password = json_dict['password']
     pubkey = json_dict['pubkey']
@@ -93,6 +95,8 @@ Response:
 def login():
     incoming_json = request.json
     json_dict = json.loads(incoming_json)
+    if 'username' not in json_dict or 'password' not in json_dict or 'ip' not in json_dict or 'port' not in json_dict:
+        abort(400)
     username = json_dict['username']
     password = json_dict['password']
     ip = json_dict['ip']
@@ -108,7 +112,7 @@ def login():
         user.isActive = True
         user.socket_port = port
         user.socket_ip = ip
-        db.commit()
+        db.session.commit()
         login_user(user, remember=True)
     return 'login'
 
@@ -137,7 +141,7 @@ Response:
 def logout():
     user = User.query.filter_by(id=current_user.get_id()).first()
     user.isActive = False
-    db.commit()
+    db.session.commit()
     logout_user()
     return 'logout'
 
@@ -166,6 +170,8 @@ Sucessful Response Parameters:
 def retrieve_new_message():
     incoming_json = request.json
     json_dict = json.loads(incoming_json)
+    if 'recipient_username' not in json_dict:
+        abort(400)
     recipientUsername = json_dict['recipient_username']
 
     recipientUser = User.query.filter_by(username=recipientUsername).first()
