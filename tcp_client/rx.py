@@ -2,7 +2,7 @@ import zmq
 import random
 
 
-class RxPort:
+class RxSocket:
     """ Class for a thread that listens for incoming messages
     from other peers. The thread is responsible for receiving
     session establishment challenges from peers, and completing
@@ -30,6 +30,11 @@ class RxPort:
     # --------------------------------------------------------------------------
     def accept_session(self, args):
         """ Handles the process of establishing a secure session when
-        initated by a remote peer client. """
+        initated by a remote peer client. The establish_session() method
+        in TerminalChat initiates the session handhshake process when a
+        peer client sends a message. """
+        # STEP ONE: COMPLETE CHALLENGE AND VERIFY SENDER NETWORK LOCATION
+        # STEP TWO: GENERATE SESSION KEYPAIR
+        # TODO: Implement this function
         pass
     # --------------------------------------------------------------------------

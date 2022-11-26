@@ -3,7 +3,9 @@ import os
 import json
 from cache import ChatCache
 from session import Session
-
+import struct
+from cryptography.fernet import Fernet
+import encryption
 
 SERVER_IP = "127.0.0.1:5000"
 
@@ -14,10 +16,11 @@ class TerminalChat:
     and it prints the UI in response to state changes. """
 
     # --------------------------------------------------------------------------
-    def __init__(self, tx, rx, port):
+    def __init__(self, tx, rx, rx_port, host_ip):
         self.tx = tx # zmq socket for transmitting messages
         self.rx = rx # wrapper around a LIFO queue
-        self.port = port
+        self.port = rx_port
+        self.host_ip = host_ip
         self.ongoing = True
         self.username = None
         self.password = None
@@ -27,7 +30,7 @@ class TerminalChat:
         self.active_chat = None
         # Stores ChatCache Object for all chats
         self.cache = None
-        self.session_key = None
+        self.session = None
         self.commands = {
             "new_account": self.create_account,
             "login": self.login,
@@ -93,7 +96,10 @@ class TerminalChat:
                 print("Passwords do not match, try again.")
         except KeyboardInterrupt:
             return
-        data = {"username": username, "password": password}
+        encryption.generate_static_keypair(username, password)
+        public = encryption.load_static_pubkey(username)
+        # TODO: Added pubkey to create account POST, make sure server saves it
+        data = {"username": username, "password": password, "pubkey": public}
         r = self.http_request("POST", "register", data)
         if r is not None and r.status_code == 200:
             print("Account created successfully.")
@@ -115,7 +121,9 @@ class TerminalChat:
             password = input("Password: ")
         except KeyboardInterrupt:
             return
-        data = {"username": username, "password": password}
+        # TODO: Make sure that server saves network location upon login
+        data = {"username": username, "password": password,
+                "ip": self.host_ip, "port": self.port}
         r = self.http_request("POST", "login", data)
         if r is not None and r.status_code == 200:
             print("Login successful.")
@@ -278,10 +286,62 @@ class TerminalChat:
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
-    def establish_session(self, args):
+    def establish_session(self, ip, port):
         """ Handles the process of establishing a secure session when
-        initated locally by the user. """
-        pass
+        initated locally by the user. The counterpart to this function
+        is the accept_session() function in the RxSocket thread, which
+        handles the process of completeting the challenge and generating
+        the session key. """
+        # STEP ONE: AUTHENTICATE NETWORK LOCATION IS CONTROLLED BY USER
+        # 1. Get public key of user from server
+        # 2. Encrypt a random nonce with the public key
+        # 3. Send the encrypted nonce to the peer
+        # 4. Receive decrypted nonce from peer, verify, receieve challenge
+        # 5. Decrypt challenge with private key, send back to peer
+
+        # STEP TWO: GENERATE NEW SESSION KEY PAIR AND DERIVE SHARED KEY
+        # 1. Send request for peer to generate new session key pair
+        # 2. Receive new session public key of peer
+        # 3. Generate new session key pair
+        # 4. Derive shared key from session key pair and peer's public key
+        # +++++++ To be handled by send_message() caller ++++++++++
+        # 5. Encrypt message under shared key
+        # 6. Send encrypted message to peer
+        # ++++++++++++++++++++++++++++++++++++++++++
+
+        # TODO: implement this function
+        # self.session = Session(self.host_ip, self.port, ip, port)
+        # # 1. Ask recipient to generate session public key
+        # self.tx.connect(f"tcp://{ip}:{port}")
+        # self.tx.send(b"request generate_new_keypair")
+        # response = self.tx.recv().split(b' ')
+        # if response[0] != b"success":
+        #     print("Failed to establish session.")
+        #     return
+        # peer_public_key = encryption.load_pubkey_from_bytes(response[1])
+        # # 2. Generate cryptograpphyically secure random number for N
+        # nonce = os.urandom(4)
+        # # 3. Encrypt Nonce under recipient public key
+        # encrypted_nonce = encryption.encrypt_message(nonce, peer_public_key)
+        # # 3. Send challenge message with Nonce, username, and my public key
+        # challenge_msg = b"Session Challenge " + self.username.encode() + b" " + \
+        #                  encrypted_nonce + b" " + self.session.local_public_key
+        # print("Challenge message reads:")
+        # print(challenge_msg)
+        # self.tx.connect(f"tcp//{ip}:{port}")
+        # self.tx.send(challenge_msg)
+        # challenge_response = self.tx.recv().split(b' ') # Wait for bob to decrypt nonce, and respond
+        # # message is of the form b"Challenge Response:N:M"
+        # if challenge_response[0] != "Challenge Response":
+        #     self.session = None
+        #     raise RuntimeError("Bob is not behaving")
+        # N = challenge_response[1]
+        # M = challenge_response[2] # M has been encrypted under our public key
+        # if N != nonce:
+        #     print("Could not authenticate recipient")
+        #     self.session = None
+        #     return False
+        # Recipient is now authenticated to us, return the favour
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -309,14 +369,16 @@ class TerminalChat:
             print("Invalid recipient.")
             return
         # Get recipient IP + port from server
-        r = self.http_request("GET", "find_ip", {"recipient": recipient})
+        r = self.http_request("GET", "find_user", {"recipient": recipient})
         if r is not None and r.status_code == 200:
-            net_location = r.text # IP + Port  in format x.x.x.x:yyyy
+            recipient_data = json.loads(r.json)
+            recipient_ip = recipient_data["ip"]
+            recipient_port = recipient_data["port"]
         else:
             print("Failed to send message; could not find recipient IP.")
             return
         # Challenge recipient to establish session
-        self.establish_session(net_location)
+        self.establish_session(recipient_ip, recipient_port)
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -392,7 +454,6 @@ class TerminalChat:
                     self.commands[cmd](args)
                 else:
                     print("Invalid command.")
-                self.handle_buffer()
             except KeyboardInterrupt:
                 self.ongoing = False
         # End of REPL, clean up

@@ -43,6 +43,24 @@ def generate_static_keypair(username, password):
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
+def load_pubkey_from_bytes(key_bytes):
+    """ Loads a public key from a byte string received over socket. """
+    return serialization.load_pem_public_key(
+        key_bytes,
+        backend=default_backend()
+    )
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+def encode_pubkey_as_bytes(public_key):
+    """ Encodes a public key as a byte string for transmission over socket. """
+    return public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
 def load_static_pubkey(username):
     """ Loads a keypair from disk, using the username and password provided,
     to be loaded by the TerminalClient upon user authentication. """
