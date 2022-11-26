@@ -13,18 +13,21 @@ class TerminalChat:
     a REPL for the user to interact with the terminal chat app,
     and it prints the UI in response to state changes. """
 
-    # +++++++++++++++++++++++++++++
-    def __init__(self):
+    # --------------------------------------------------------------------------
+    def __init__(self, tx, rx, port):
+        self.tx = tx # zmq socket for transmitting messages
+        self.rx = rx # wrapper around a LIFO queue
+        self.port = port
         self.ongoing = True
         self.username = None
         self.password = None
         self.cookie = None
         self.authenticated = False # is user logged in?
-        self.session = None # connection to peer client
         # Stores chat_id (int) of active chat within msg_history
         self.active_chat = None
         # Stores ChatCache Object for all chats
-        self.msg_history = None
+        self.cache = None
+        self.session_key = None
         self.commands = {
             "new_account": self.create_account,
             "login": self.login,
@@ -37,27 +40,26 @@ class TerminalChat:
             "open": self.open_chat,
             "close": self.close_chat,
             "send": self.send_message,
-            "refresh": self.refresh_chat,
             "help": self.ui_help,
             "exit": self.exit_client
         }
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     @staticmethod
     def clear_screen() -> None:
         if os.name == 'nt':
             _ = os.system('cls')
         else:
             _ = os.system('clear')
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def http_request(self, method, endpoint, data=None):
+        # TODO: Encrypt all json data sent to the server
         """ Wrapper to send an HTTP request to the server. """
         url = f"http://{SERVER_IP}/{endpoint}"
-        if data is not None:
-            data = json.dumps(data, indent=4)
+        data = json.dumps(data, indent=4)
         if self.cookie is None:
             headers={"Content-Type":"application/json"}
         else:
@@ -67,16 +69,16 @@ class TerminalChat:
             if method == "GET":
                 r = requests.get(url, headers=headers)
             elif method == "POST":
-                r = requests.post(url, data=data, headers=headers)
+                r = requests.post(url, json=data, headers=headers)
             else:
                 raise ValueError("Invalid HTTP method.")
         except requests.exceptions.ConnectionError:
             print("Could not connect to SecureChat™ server.")
             return None
         return r
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def create_account(self, args):
         """ Populates data for HTTP request to create a new
         account on the server, prints result of operation."""
@@ -100,9 +102,9 @@ class TerminalChat:
             print(r.text)
         else:
             print("Server connection failed.")
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def login(self, args):
         """ Populates data for HTTP request to login to the
         server, prints result of operation. """
@@ -133,14 +135,14 @@ class TerminalChat:
             print(r.text)
         else:
             print("Server connection failed.")
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def logout(self, args):
         """ Sends a request to the server to log out the user.
         Triggers the client to save the message history to disk
         and exit. """
-        self.clear_screen()
+        # self.clear_screen() # TODO: uncomment this when no longer debugging
         print("*** Logout of SecureChat™ ***")
         r = self.http_request("GET", "logout")
         if r is not None and r.status_code == 200:
@@ -155,9 +157,9 @@ class TerminalChat:
             print(r.text)
         else:
             print("Server connection failed.")
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def delete_account(self, args):
         """Sends a request to the server to delete
         the currently logged-in user account."""
@@ -184,10 +186,13 @@ class TerminalChat:
             print(r.text)
         else:
             print("Server connection failed.")
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def delete_msg(self, args):
+        if not self.authenticated:
+            print("You must be logged in to delete messages.")
+            return
         try:
             msg_id = int(args[0])
         except (IndexError, ValueError):
@@ -196,138 +201,182 @@ class TerminalChat:
         if self.active_chat is None:
             print("No chat is currently open.")
             return
-        if not self.authenticated:
-            print("You must be logged in to delete messages.")
-            return
-        rc = self.msg_history.delete_message(self.active_chat, msg_id)
+        rc = self.cache.delete_message(self.active_chat, msg_id)
         if rc:
             print("Message deleted successfully.")
         else:
             print("Message deletion failed.")
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def delete_chat(self, args):
+        if not self.authenticated:
+            print("You must be logged in to delete chats.")
+            return
         try:
             chat_id = int(args[0])
         except (IndexError, ValueError):
             print("Invalid chat ID.")
             return
-        if not self.authenticated:
-            print("You must be logged in to delete chats.")
+        if not self.cache.chat_exists(chat_id):
+            print("Chat does not exist.")
             return
-        rc = self.msg_history.delete_chat(chat_id)
+        rc = self.cache.delete_chat(chat_id)
         if rc:
             print("Chat deleted successfully.")
         else:
             print("Chat deletion failed.")
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def list_chats(self, args):
-        print(self.msg_history.list())
-    # +++++++++++++++++++++++++++++
+        if not self.authenticated:
+            print("You must be logged in to list chats.")
+            return
+        print(self.cache.list())
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def create_chat(self, args):
-        pass
-    # +++++++++++++++++++++++++++++
+        if not self.authenticated:
+            print("You must be logged in to create chats.")
+            return
+        try:
+            recipient = str(args[0])
+        except (IndexError, ValueError):
+            print("Invalid recipient.")
+            return
+        rc = self.cache.new_chat(recipient)
+        if not rc:
+            print("Failed to create chat.")
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def open_chat(self, args):
         """ Attempts to open a chat with the provided ID,
         sets the active_chat field to the ID if successful. """
+        if not self.authenticated:
+            print("You uyst be logged in to open a chat.")
+            return
         try:
             chat_id = int(args[0])
         except (IndexError, ValueError):
             print("Invalid chat ID.")
             return
-        if not self.msg_history.chat_exists(chat_id):
+        if not self.cache.chat_exists(chat_id):
             print("Chat does not exist.")
             return
         self.active_chat = chat_id
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def close_chat(self, args):
         """ Sets the active chat to None, this prevents the chat
         from being displayed in the UI, and prevents the user from
         querying or modifying the chat. """
         self.active_chat = None
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def establish_session(self, args):
+        """ Handles the process of establishing a secure session when
+        initated locally by the user. """
         pass
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
+    def receive_message(self, net_location):
+        """ Handles incoming chat messages from the buffer. """
+        # 1. Check the Rx buffer for new chat messages
+        # 2. If there are new messages add them to the local message cache
+        pass
+    # --------------------------------------------------------------------------
+
+    # --------------------------------------------------------------------------
     def send_message(self, args):
-        pass
-    # +++++++++++++++++++++++++++++
+        """ # 1. Get recipient IP address from server (future improvement, cache IP)
+        # 2. If recipient unavailable, print error and return
+        # 3. Begin Session Establishment challenge
+        # 4. If challenge fails, print error and return
+        # 5. Encrypt message with session key
+        # 6. Sign message with session key hash
+        # 7. Send message to recipient
+        # 8. Delete session key
+        # 9. Add sent message to local cache of chat history """
+        msg = "".join(args)
+        recipient = self.cache.active_user()
+        if recipient is None:
+            print("Invalid recipient.")
+            return
+        # Get recipient IP + port from server
+        r = self.http_request("GET", "find_ip", {"recipient": recipient})
+        if r is not None and r.status_code == 200:
+            net_location = r.text # IP + Port  in format x.x.x.x:yyyy
+        else:
+            print("Failed to send message; could not find recipient IP.")
+            return
+        # Challenge recipient to establish session
+        self.establish_session(net_location)
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def load_messages(self):
         """ Loads message history from JSON non-volatile storage
         into memory and decrypts it. Message history is stored on
         disk by username, and is only retrievable after a user has
         authenticated with the server. """
-        filename = self.username + ".json"
+        filename = "./chats/" + self.username + ".json"
         if os.path.isfile(filename):
             with open(filename, "r") as f:
                 # TODO: Decrypt messages
-                self.msg_history = ChatCache(json.load(f))
+                self.cache = ChatCache(json.load(f))
         else:
-            self.msg_history = ChatCache()
-    # +++++++++++++++++++++++++++++
+            self.cache = ChatCache()
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def save_messages(self):
         """ When user logs out, or client exits, encrypt and save
         message history changes that have accumulated to the disk. """
-        filename = self.username + ".json"
+        filename = "./chats/" + self.username + ".json"
         with open(filename, "w") as f:
             # TODO: Encrypt messages
-            f.write(json.dumps(self.msg_history.history))
-    # +++++++++++++++++++++++++++++
+            f.write(json.dumps(self.cache.history))
+    # --------------------------------------------------------------------------
 
     def display_UI(self):
         """ Print the state of the TerminalChat to the user. """
         if self.authenticated:
-            print(f"User: {self.username}")
+            print(f"\nUser: {self.username}")
         else:
-            print("User: None")
-        if self.session is not None:
-            pass # TODO: print session info
-        else:
-            print("Session: None")
+            print("\nUser: None")
         if self.active_chat is not None:
-            print(f"Active Chat: {self.active_chat.header()}")
-            print(self.active_chat)
+            print(f"Active Chat: {self.cache.header_by_id(self.active_chat)}")
         else:
-            print("\nActive Chat: None")
+            print("Active Chat: None")
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def ui_help(self, args):
         print(self.commands.keys())
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def exit_client(self, args):
         self.ongoing = False
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def parse_command(self):
         """ Parses a command from the user and executes it. """
         command_string = input(">> ").split(' ')
         cmd = command_string[0]
         args = command_string[1:]
         return cmd, args
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
 
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------
     def run(self):
+        self.clear_screen()
         """ REPL for the TerminalChat UI. """
         print("***  Welcome to SecureChat™  ***")
         try: # Check that server is running
@@ -336,13 +385,18 @@ class TerminalChat:
             # This is not fatal, but the user should be warned
             print("\nERROR: Could not connect to SecureChat™ server.\n")
         while self.ongoing:
-            self.display_UI()
-            cmd, args = self.parse_command()
-            if cmd in self.commands:
-                self.commands[cmd](args)
-            else:
-                print("Invalid command.")
+            try:
+                self.display_UI()
+                cmd, args = self.parse_command()
+                if cmd in self.commands:
+                    self.commands[cmd](args)
+                else:
+                    print("Invalid command.")
+                self.handle_buffer()
+            except KeyboardInterrupt:
+                self.ongoing = False
         # End of REPL, clean up
         if self.authenticated:
+            print("Authenticated, logging out")
             self.logout(None)
-    # +++++++++++++++++++++++++++++
+    # --------------------------------------------------------------------------

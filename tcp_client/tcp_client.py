@@ -1,21 +1,28 @@
 from chat import TerminalChat
+from buffer import MessageBuffer
+from rx import RxSocket
 import zmq # https://zeromq.org/languages/python/
 
 
 # ------------------------------------------------------------------------------
 def main():
 
-    # Create ZMQ ports for sending and receiving data
-    # from other peers
+    # Create ZMQ socket for sending messages
     context = zmq.Context()
     tx = context.socket(zmq.REQ)
     tx.connect("tcp://localhost:56122")
-    rx = context.socket(zmq.REP)
-    rx.bind("tcp://*:56122")
 
-    chat_client = TerminalChat(tx, rx)
+    # Create message buffer for receiving messages
+    rx_buffer = MessageBuffer()
+
+    # Run the receiving thread
+    rx = RxSocket(rx_buffer)
+    rx_port = rx.port
+
+    # Run the chat client
+    chat_client = TerminalChat(tx, rx_buffer, rx_port)
     chat_client.run()
-    chat_client.save_messages()
+    rx.start()
 # ------------------------------------------------------------------------------
 
 

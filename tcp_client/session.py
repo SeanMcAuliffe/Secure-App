@@ -1,6 +1,13 @@
 class Session:
-    """ Represents a single chat session with another client. Provides
-    methods for establishing authentication, sending and receiving messages.
-    Messages cannot be sent or received until the session is authenticated. """
+    """ Stores information about a single session key that has been
+    established. The session key is used to encrypt and decrypt
+    messages between peers. It is valid only for a single message and
+    then is destroyed."""
     def __init__(self):
-        pass
+        self.key = None
+        self.recipient = None
+        self.recipient_ip = None
+        self.recipient_public_key = None
+        self.sender = None
+        self.sender_ip = None
+        self.sender_public_key = None
