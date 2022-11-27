@@ -18,6 +18,7 @@ class TerminalChat:
         self.tx = tx # zmq socket for transmitting messages
         self.msg_buffer = msg_buffer # wrapper around a LIFO queue
         self.rx_socket = rx_socket
+        self.rx_thread = threading.Thread(target=self.rx_socket.run)
         self.host_ip = host_ip
         self.ongoing = True
         self.username = None
@@ -137,7 +138,7 @@ class TerminalChat:
             self.load_messages()
             # Start listening for incoming messages for the user
             self.rx_socket.add_credentials(username, password, self.cookie)
-            self.rx_socket.start()
+            self.rx_thread.start()
         elif r is not None and r.status_code != 200:
             print("Login failed.")
             self.authenticated = False
@@ -359,7 +360,9 @@ class TerminalChat:
         if self.msg_buffer.is_empty():
             return
         # msg is of form "<sender> <msg>"
+        self.buffer.semaphore.acquire()
         msg = self.msg_buffer.get_msg()
+        self.buffer.semaphore.release()
         delimiter = msg.find(" ")
         sender = msg[0:delimiter]
         msg = msg[delimiter+1:]

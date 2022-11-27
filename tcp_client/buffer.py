@@ -1,4 +1,5 @@
 from queue import LifoQueue
+from threading import Semaphore
 
 class MessageBuffer:
     """ Object shared between TerminalChat and RxPort threads. Provides a
@@ -6,6 +7,7 @@ class MessageBuffer:
     the TerminalChat thread during it's next REPL loop. """
     def __init__(self):
         self.q = LifoQueue(10)
+        self.semaphore = Semaphore()
 
     def add_msg(self, msg):
         self.q.put(msg, block=True, timeout=1)

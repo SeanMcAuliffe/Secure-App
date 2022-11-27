@@ -70,7 +70,7 @@ class RxSocket:
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
-    def start(self):
+    def run(self):
         if not self.authenticated:
             print("User must be authenticated before the Rx thread can start.")
             return
@@ -188,7 +188,9 @@ class RxSocket:
             raise RuntimeError("Message was recieved under valid session, with \
                                 invalid signature.")
         msg_to_save = self.sender_username + " " + decrypted_msg.decode()
+        self.buffer.semaphore.acquire()
         self.buffer.add_msg(msg_to_save)
+        self.buffer.semaphore.release()
         self.rx.send(b"ok")
         self.sender_username = None
         self.peer_pubkey = None
