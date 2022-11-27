@@ -56,11 +56,34 @@ class ChatCache:
     def new_chat(self, recipient):
         if self.get_chat_by_username(recipient) is not None:
             return False # chat already exists
-        new_chat = {"chat_id": len(self.ids), "username": recipient, "history": []}
+        new_chat = {"chat_id": len(self.ids),
+                    "username": recipient,
+                    "history": []}
         self.history.append(new_chat)
         self.ids.append(new_chat["chat_id"])
         self.users.append(new_chat["username"])
         self.refresh_list()
+        return True
+
+    def add_message_by_id(self, chat_id, sender, message):
+        chat = self.get_chat_by_id(chat_id)
+        if chat is None:
+            return False
+        msg_id = len(chat["history"])
+        chat["history"].append({"msg_id": msg_id,
+                                "sender": sender,
+                                "message": message})
+        return True
+
+    def add_message_by_username(self, username, message):
+        chat = self.get_chat_by_username(username)
+        if chat is None:
+            self.new_chat(username)
+            chat = self.get_chat_by_username(username)
+        msg_id = len(chat["history"])
+        chat["history"].append({"msg_id": msg_id,
+                                "sender": username,
+                                "message": message})
         return True
 
     def delete_chat(self, chat_id):

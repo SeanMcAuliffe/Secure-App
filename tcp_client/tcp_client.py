@@ -15,14 +15,12 @@ def main():
     rx_buffer = MessageBuffer()
 
     # Run the receiving thread
-    rx = RxSocket(rx_buffer)
-    rx_port = rx.port
+    rx_socket = RxSocket(rx_buffer)
     host_ip = "127.0.0.1" # TODO: Determine host IP
 
     # Run the chat client
-    chat_client = TerminalChat(tx, rx_buffer, rx_port, host_ip)
+    chat_client = TerminalChat(tx, rx_buffer, rx_socket, host_ip)
     chat_client.run()
-    rx.start()
 # ------------------------------------------------------------------------------
 
 

@@ -61,6 +61,15 @@ def encode_pubkey_as_bytes(public_key):
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
+def load_pubkey_as_bytes(username):
+    """ Encodes a public key as a byte string for transmission over socket. """
+    public_key = None
+    with open("./keys/" + username + ".pub", "rb") as key_file:
+        public_key = key_file.read()
+    return public_key
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
 def load_static_pubkey(username):
     """ Loads a keypair from disk, using the username and password provided,
     to be loaded by the TerminalClient upon user authentication. """
@@ -100,7 +109,7 @@ def generate_session_keypair():
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-def generate_shared_key(local_private_key, peer_public_key):
+def derive_shared_key(local_private_key, peer_public_key):
     """ Generates a single-use shared key (symmetric, using Fernet) for
     use in a single message exhange. """
     shared_key = local_private_key.exchange(peer_public_key)

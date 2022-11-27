@@ -13,3 +13,6 @@ class MessageBuffer:
     def get_msg(self):
         return self.q.get(block=True, timeout=1)
 
+    def is_empty(self):
+        return self.q.empty()
+

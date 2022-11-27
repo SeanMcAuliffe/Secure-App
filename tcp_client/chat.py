@@ -2,10 +2,8 @@ import requests
 import os
 import json
 from cache import ChatCache
-from session import Session
-import struct
-from cryptography.fernet import Fernet
 import encryption
+import threading
 
 SERVER_IP = "127.0.0.1:5000"
 
@@ -16,10 +14,10 @@ class TerminalChat:
     and it prints the UI in response to state changes. """
 
     # --------------------------------------------------------------------------
-    def __init__(self, tx, rx, rx_port, host_ip):
+    def __init__(self, tx, msg_buffer, rx_socket, host_ip):
         self.tx = tx # zmq socket for transmitting messages
-        self.rx = rx # wrapper around a LIFO queue
-        self.port = rx_port
+        self.msg_buffer = msg_buffer # wrapper around a LIFO queue
+        self.rx_socket = rx_socket
         self.host_ip = host_ip
         self.ongoing = True
         self.username = None
@@ -30,7 +28,7 @@ class TerminalChat:
         self.active_chat = None
         # Stores ChatCache Object for all chats
         self.cache = None
-        self.session = None
+        self.session_key = None
         self.commands = {
             "new_account": self.create_account,
             "login": self.login,
@@ -97,8 +95,7 @@ class TerminalChat:
         except KeyboardInterrupt:
             return
         encryption.generate_static_keypair(username, password)
-        public = encryption.load_static_pubkey(username)
-        # TODO: Added pubkey to create account POST, make sure server saves it
+        public = encryption.load_pubkey_as_bytes(username)
         data = {"username": username, "password": password, "pubkey": public}
         r = self.http_request("POST", "register", data)
         if r is not None and r.status_code == 200:
@@ -106,8 +103,10 @@ class TerminalChat:
         elif r is not None and r.status_code != 200:
             print("Account creation failed.")
             print(r.text)
+            # Todo; if failed, delete the keypair
         else:
             print("Server connection failed.")
+            # Todo; if failed, delete the keypair
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -136,6 +135,9 @@ class TerminalChat:
             # Check if username.json exists, if not create it
             # if yes, load message history into memory
             self.load_messages()
+            # Start listening for incoming messages for the user
+            self.rx_socket.add_credentials(username, password, self.cookie)
+            self.rx_socket.start()
         elif r is not None and r.status_code != 200:
             print("Login failed.")
             self.authenticated = False
@@ -158,7 +160,7 @@ class TerminalChat:
             self.authenticated = False
             self.active_chat = None
             self.cookie = None
-            self.save_messages()
+            self.save_messages() # TODO: Think about where save should happen
             self.exit_client(None)
         elif r is not None and r.status_code != 200:
             print("Logout failed.")
@@ -286,99 +288,134 @@ class TerminalChat:
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
-    def establish_session(self, ip, port):
+    def establish_session(self, pubkey):
         """ Handles the process of establishing a secure session when
         initated locally by the user. The counterpart to this function
         is the accept_session() function in the RxSocket thread, which
         handles the process of completeting the challenge and generating
         the session key. """
         # STEP ONE: AUTHENTICATE NETWORK LOCATION IS CONTROLLED BY USER
-        # 1. Get public key of user from server
-        # 2. Encrypt a random nonce with the public key
-        # 3. Send the encrypted nonce to the peer
-        # 4. Receive decrypted nonce from peer, verify, receieve challenge
-        # 5. Decrypt challenge with private key, send back to peer
-
+        # 1. Encrypt a random nonce with the public key
+        if self.session_key is not None:
+            print("Warning: session key was not destroyed after last use.")
+            self.session_key = None
+        nonce = os.urandom(32)
+        peer_pubkey = encryption.load_pubkey_from_bytes(pubkey)
+        encrypted_nonce = encryption.encrypt_message(nonce, peer_pubkey)
+        # 2. Send the encrypted nonce to the peer with our user name so that they can also verify us
+        msg = b"challenge " + self.username.encode() + b" " + encrypted_nonce
+        self.send_message(msg)
+        # 3. Receive decrypted nonce from peer, verify, receieve challenge
+        # TODO: There is a problem here, the socket is blocking,
+        # so if the peer never responds, this will hang forever
+        # Look into this https://pyzmq.readthedocs.io/en/latest/api/zmq.html#poller
+        resp = self.tx.recv().split(b" ")
+        # Response is of the form: "response <username> <decrypted N> <encrypted M>"
+        if len(resp) != 4:
+            print("Invalid response from peer.")
+            return
+        if resp[0] != b"response":
+            print("Invalid response from peer.")
+            return
+        if resp[1] != self.cache.active_user(self.active_chat).encode():
+            print("Response from invalid peer.")
+            return
+        if resp[2] != nonce:
+            print("Peer failed to decrypt nonce.")
+            return
+        # 4. Decrypt challenge, M, with private key and send back to peer
+        local_privkey = encryption.load_static_privkey(self.username, self.password)
+        decrypted_challenge = encryption.decrypt_message(resp[3], local_privkey)
+        self.tx.send(b"handhsake " + decrypted_challenge)
+        handshake_resp = self.tx.recv()
+        if handshake_resp != b"handshake_success":
+            print("Handshake failed.")
+            return
         # STEP TWO: GENERATE NEW SESSION KEY PAIR AND DERIVE SHARED KEY
-        # 1. Send request for peer to generate new session key pair
+        # 1. Generate local session keypair, send request for peer to 
+        # generate new session key pair
+        session_priv, session_pub = encryption.generate_session_keypair()
         # 2. Receive new session public key of peer
-        # 3. Generate new session key pair
-        # 4. Derive shared key from session key pair and peer's public key
-        # +++++++ To be handled by send_message() caller ++++++++++
-        # 5. Encrypt message under shared key
-        # 6. Send encrypted message to peer
-        # ++++++++++++++++++++++++++++++++++++++++++
-
-        # TODO: implement this function
-        # self.session = Session(self.host_ip, self.port, ip, port)
-        # # 1. Ask recipient to generate session public key
-        # self.tx.connect(f"tcp://{ip}:{port}")
-        # self.tx.send(b"request generate_new_keypair")
-        # response = self.tx.recv().split(b' ')
-        # if response[0] != b"success":
-        #     print("Failed to establish session.")
-        #     return
-        # peer_public_key = encryption.load_pubkey_from_bytes(response[1])
-        # # 2. Generate cryptograpphyically secure random number for N
-        # nonce = os.urandom(4)
-        # # 3. Encrypt Nonce under recipient public key
-        # encrypted_nonce = encryption.encrypt_message(nonce, peer_public_key)
-        # # 3. Send challenge message with Nonce, username, and my public key
-        # challenge_msg = b"Session Challenge " + self.username.encode() + b" " + \
-        #                  encrypted_nonce + b" " + self.session.local_public_key
-        # print("Challenge message reads:")
-        # print(challenge_msg)
-        # self.tx.connect(f"tcp//{ip}:{port}")
-        # self.tx.send(challenge_msg)
-        # challenge_response = self.tx.recv().split(b' ') # Wait for bob to decrypt nonce, and respond
-        # # message is of the form b"Challenge Response:N:M"
-        # if challenge_response[0] != "Challenge Response":
-        #     self.session = None
-        #     raise RuntimeError("Bob is not behaving")
-        # N = challenge_response[1]
-        # M = challenge_response[2] # M has been encrypted under our public key
-        # if N != nonce:
-        #     print("Could not authenticate recipient")
-        #     self.session = None
-        #     return False
-        # Recipient is now authenticated to us, return the favour
+        self.tx.send(b"generate_session_key")
+        session_response = self.tx.recv().split(b" ")
+        if len(session_response) != 2:
+            print("Invalid response from peer.")
+            return
+        if session_response[0] != b"session_key":
+            print("Invalid response from peer.")
+            return
+        peer_session_pub = encryption.load_pubkey_from_bytes(session_response[1])
+        # 3. Derive shared key from local session private key and peer session public key
+        self.session_key = encryption.derive_shared_key(session_priv, peer_session_pub)
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
     def receive_message(self, net_location):
-        """ Handles incoming chat messages from the buffer. """
-        # 1. Check the Rx buffer for new chat messages
-        # 2. If there are new messages add them to the local message cache
-        pass
+        """ Handles incoming chat messages from the buffer. Messages have already
+        been authenticated and decrypted by RxSocket thread, so this function
+        only needs to pass them on to the local cache. """
+        if self.msg_buffer.is_empty():
+            return
+        # msg is of form "<sender> <msg>"
+        msg = self.msg_buffer.get_msg()
+        delimiter = msg.find(" ")
+        sender = msg[0:delimiter]
+        msg = msg[delimiter+1:]
+        self.cache.add_message_by_username(sender, msg)
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
     def send_message(self, args):
-        """ # 1. Get recipient IP address from server (future improvement, cache IP)
-        # 2. If recipient unavailable, print error and return
-        # 3. Begin Session Establishment challenge
-        # 4. If challenge fails, print error and return
-        # 5. Encrypt message with session key
-        # 6. Sign message with session key hash
-        # 7. Send message to recipient
-        # 8. Delete session key
-        # 9. Add sent message to local cache of chat history """
+        """ 1. Get recipient IP address from server (future improvement, cache IP)
+        2. If recipient unavailable, print error and return
+        3. Begin Session Establishment challenge
+        4. If challenge fails, print error and return
+        5. Encrypt message with session key
+        6. Sign message with session key hash
+        7. Send message to recipient
+        8. Delete session key
+        9. Add sent message to local cache of chat history """
         msg = "".join(args)
-        recipient = self.cache.active_user()
+        recipient = self.cache.active_user(self.active_chat)
         if recipient is None:
             print("Invalid recipient.")
             return
         # Get recipient IP + port from server
-        r = self.http_request("GET", "find_user", {"recipient": recipient})
+        r = self.http_request("GET", "create_session",
+                              {"recipient_username": recipient})
         if r is not None and r.status_code == 200:
             recipient_data = json.loads(r.json)
             recipient_ip = recipient_data["ip"]
-            recipient_port = recipient_data["port"]
+            recipient_port = str(recipient_data["port"])
+            recipient_pubkey = recipient_data["pubkey"]
         else:
             print("Failed to send message; could not find recipient IP.")
             return
         # Challenge recipient to establish session
-        self.establish_session(recipient_ip, recipient_port)
+        self.tx.connect(f"tcp://{recipient_ip}:{recipient_port}")
+        self.establish_session(recipient_pubkey)
+        if self.session_key is None:
+            print("Failed to send message; could not establish session.")
+            self.session_key = None
+            self.tx.disconnect()
+            return
+        # Encrypt message under session key
+        encrypted_msg = encryption.encrypt_message(msg, self.session_key)
+        # Sign message with session key hash
+        signature = encryption.sign_message(encrypted_msg, self.session_key)
+        # Send message to recipient
+        self.tx.send(b"message " + encrypted_msg + b" " + signature)
+        resp = self.tx.recv()
+        if resp != b"ok":
+            print(f"Message was not delivered to {recipient}.")
+        # Delete session key
+        self.session_key = None
+        # Add sent message to local cache of chat history
+        rc = self.cache.add_message_by_id(self.active_chat, self.username, msg)
+        if not rc:
+            print("Failed to add message to cache.")
+        self.session_key = None
+        self.tx.disconnect()
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -433,7 +470,10 @@ class TerminalChat:
         command_string = input(">> ").split(' ')
         cmd = command_string[0]
         args = command_string[1:]
-        return cmd, args
+        if cmd in self.commands:
+            self.commands[cmd](args)
+        else:
+            print("Invalid command.")
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -449,11 +489,7 @@ class TerminalChat:
         while self.ongoing:
             try:
                 self.display_UI()
-                cmd, args = self.parse_command()
-                if cmd in self.commands:
-                    self.commands[cmd](args)
-                else:
-                    print("Invalid command.")
+                self.parse_command()
             except KeyboardInterrupt:
                 self.ongoing = False
         # End of REPL, clean up
