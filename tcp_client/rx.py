@@ -30,7 +30,10 @@ class RxSocket:
         self.cookie = None
         self.ongoing = False
         self.authenticated = False
-        self.accepting_handshake = False
+        self.phase = 0
+        self.peer_pubkey = None
+        self.monce = None # M nonce
+        self.sender_username = None
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -78,23 +81,31 @@ class RxSocket:
 
             # Determine the type of message and call appropriate handler
             if incoming_msg[0] == b"challenge":
-                if self.session_key is not None:
+                if self.phase == 0:
                     self.accept_session(incoming_msg[1:])
                 else:
-                    raise RuntimeError("Received challenge when session \
-                                        already established")
+                    raise RuntimeError("Received challenge in wrong order.")
+
             elif incoming_msg[0] == b"handshake":
-                if not self.accepting_handshake:
+                if not self.phase != 1:
                     raise RuntimeError("Received handshake when not \
                                         accepting handshakes")
                 else:
                     self.complete_handshake(incoming_msg[1:])
-            elif incoming_msg[0] == b"message":
-                if self.session_key is None:
-                    self.rx_buffer.add_msg(incoming_msg[1:])
+
+            elif incoming_msg[0] == "generate_session_key":
+                if self.phase != 2:
+                    raise RuntimeError("Session key generation request came out of order")
                 else:
+                    self.generate_session_key(incoming_msg[1:])
+
+            elif incoming_msg[0] == b"message":
+                if self.phase != 3:
                     raise RuntimeError("Message received but session key \
                                         not established")
+                else:
+                    self.receive_message(incoming_msg[1:])
+
             else:
                 raise RuntimeError("Received unrecognized message type")
     # --------------------------------------------------------------------------
@@ -117,16 +128,15 @@ class RxSocket:
         # 2. we need to decrypt N with local private key
         N = challenge[1]
         # 3 Encrypt M under the sender's public key
-        M = urandom(32)
+        self.monce = urandom(32)
 
         # 1.
         r = self.http_request("GET", "create_session",
                               {"recipient_username": sender})
         if r is not None and r.status_code == 200:
             sender_data = json.loads(r.json)
-            sender_ip = sender_data["ip"]
-            sender_port = str(sender_data["port"])
             sender_pubkey = sender_data["pubkey"]
+            self.sender_username = sender
         else:
             raise RuntimeError("Failed to send message; could not find \
                                 recipient IP.")
@@ -137,22 +147,53 @@ class RxSocket:
 
         # 3.
         pubkey = encryption.load_pubkey_from_bytes(sender_pubkey)
-        encrypted_M = encryption.encrypt_message(M, pubkey)
+        encrypted_M = encryption.encrypt_message(self.monce, pubkey)
 
         # 4. Send response to sender
         response = b"response " + self.username.encode() + b" " + decrypted_N + encrypted_M
         self.rx.send(response)
+        self.phase = 1
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
     def complete_handshake(self, handshake):
-        pass
+        recieved_monce = handshake[0]
+        if recieved_monce != self.monce:
+            raise RuntimeError("Sender failed authentication challenge")
+        self.rx.send(b"handshake_success")
+        self.phase = 2
+        # This completes two-way authentication
+    # --------------------------------------------------------------------------
+
+    # --------------------------------------------------------------------------
+    def generate_session_key(self, handshake):
+        peer_pubkey_bytes = handshake[0]
+        peer_pubkey = encryption.load_pubkey_from_bytes(peer_pubkey_bytes)
+        local_privkey, local_pubkey = encryption.generate_session_keypair()
+        local_pubkey_bytes = encryption.encode_pubkey_as_bytes(local_pubkey)
+        self.session_key = encryption.derive_shared_key(local_privkey, peer_pubkey)
+        self.rx.send(b"agreed " + local_pubkey_bytes)
+        self.phase = 3
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
     def receive_message(self, msg):
         """ Handles the process of receiving a message from a remote peer
         client. """
+        encrypted_msg = msg[0]
+        signature = msg[1]
+        decrypted_msg = encryption.decrypt_message(encrypted_msg, self.session_key)
+        valid_signature = encryption.verify_signature(decrypted_msg, signature)
+        if not valid_signature:
+            raise RuntimeError("Message was recieved under valid session, with \
+                                invalid signature.")
+        msg_to_save = self.sender_username + " " + decrypted_msg.decode()
+        self.buffer.add_msg(msg_to_save)
         self.rx.send(b"ok")
+        self.sender_username = None
+        self.peer_pubkey = None
+        self.session_key = None
+        self.monce = None
+        self.phase = 0
 
     # --------------------------------------------------------------------------

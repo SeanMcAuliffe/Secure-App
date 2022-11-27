@@ -122,7 +122,7 @@ class TerminalChat:
             return
         # TODO: Make sure that server saves network location upon login
         data = {"username": username, "password": password,
-                "ip": self.host_ip, "port": self.port}
+                "ip": self.host_ip, "port": self.rx_socket.port}
         r = self.http_request("POST", "login", data)
         if r is not None and r.status_code == 200:
             print("Login successful.")
@@ -161,6 +161,7 @@ class TerminalChat:
             self.active_chat = None
             self.cookie = None
             self.save_messages() # TODO: Think about where save should happen
+            self.rx_socket.stop()
             self.exit_client(None)
         elif r is not None and r.status_code != 200:
             print("Logout failed.")
@@ -335,13 +336,14 @@ class TerminalChat:
         # 1. Generate local session keypair, send request for peer to 
         # generate new session key pair
         session_priv, session_pub = encryption.generate_session_keypair()
+        session_pubkey_bytes = encryption.encode_pubkey_as_bytes(session_pub)
         # 2. Receive new session public key of peer
-        self.tx.send(b"generate_session_key")
+        self.tx.send(b"generate_session_key " + session_pubkey_bytes)
         session_response = self.tx.recv().split(b" ")
         if len(session_response) != 2:
             print("Invalid response from peer.")
             return
-        if session_response[0] != b"session_key":
+        if session_response[0] != b"agreed ":
             print("Invalid response from peer.")
             return
         peer_session_pub = encryption.load_pubkey_from_bytes(session_response[1])
