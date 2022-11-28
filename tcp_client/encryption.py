@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric import dh
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.exceptions import InvalidSignature
+import os
 
 # https://nitratine.net/blog/post/asymmetric-encryption-and-decryption-in-python/
 # https://cryptography.io/en/latest/hazmat/primitives/asymmetric/dh/
@@ -15,7 +16,6 @@ def generate_static_keypair(username, password):
     """ Generates a new RSA keypair and saves it to disk, under the username
     and password provided. The password needs to be provided in order to load
     the keypair later. """
-
     # Generate and store private key to file
     private_key = rsa.generate_private_key(
         public_exponent=65537,
@@ -27,9 +27,12 @@ def generate_static_keypair(username, password):
     format=serialization.PrivateFormat.PKCS8,
     encryption_algorithm=serialization.BestAvailableEncryption(password.encode())
     )
-    filename = "./keys/" + username + ".pem"
-    with open(filename, "wb") as f:
-        f.write(priv)
+    if os.name == "nt":
+        with open("tcp_client\\keys\\" + username + ".pem", "wb") as key_file:
+            key_file.write(priv)
+    else:
+        with open("tcp_client/keys/" + username + ".pem", "wb") as key_file:
+            key_file.write(priv)
 
     # Generate and store public key to file
     public_key = private_key.public_key()
@@ -37,9 +40,12 @@ def generate_static_keypair(username, password):
         encoding=serialization.Encoding.PEM,
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     )
-    filename = "./keys/" + username + ".pub"
-    with open(filename, "wb") as f:
-        f.write(pub)
+    if os.name == "nt":
+        with open("tcp_client\\keys\\" + username + ".pub", "wb") as key_file:
+            key_file.write(pub)
+    else:
+        with open("tcp_client/keys/" + username + ".pub", "wb") as key_file:
+            key_file.write(pub)
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -64,8 +70,12 @@ def encode_pubkey_as_bytes(public_key):
 def load_pubkey_as_bytes(username):
     """ Encodes a public key as a byte string for transmission over socket. """
     public_key = None
-    with open("./keys/" + username + ".pub", "rb") as key_file:
-        public_key = key_file.read()
+    if os.name == "nt":
+        with open("tcp_client\\keys\\" + username + ".pub", "rb") as key_file:
+            public_key = key_file.read()
+    else:
+        with open("tcp_client/keys/" + username + ".pub", "rb") as key_file:
+            public_key = key_file.read()
     return public_key
 # ------------------------------------------------------------------------------
 
@@ -74,8 +84,15 @@ def load_static_pubkey(username):
     """ Loads a keypair from disk, using the username and password provided,
     to be loaded by the TerminalClient upon user authentication. """
     public_key = None
-    with open("./keys/" + username + ".pub", "rb") as key_file:
-        public_key = serialization.load_pem_public_key(
+    if os.name == "nt":
+        with open("tcp_client\\keys\\" + username + ".pub", "rb") as key_file:
+            public_key = serialization.load_pem_public_key(
+            key_file.read(),
+            backend=default_backend()
+        )
+    else:
+        with open("tcp_client/keys/" + username + ".pub", "rb") as key_file:
+            public_key = serialization.load_pem_public_key(
             key_file.read(),
             backend=default_backend()
         )
@@ -87,12 +104,20 @@ def load_static_privkey(username, password):
     """ Loads a keypair from disk, using the username and password provided,
     to be loaded by the TerminalClient upon user authentication. """
     private_key = None
-    with open("./keys/" + username + ".pem", "rb") as key_file:
-        private_key = serialization.load_pem_private_key(
+    if os.name == "nt":
+        with open("tcp_client\\keys\\" + username + ".pem", "rb") as key_file:
+            private_key = serialization.load_pem_private_key(
             key_file.read(),
             password=password.encode(),
             backend=default_backend()
         )
+    else:
+        with open("tcp_client/keys/" + username + ".pem", "rb") as key_file:
+            private_key = serialization.load_pem_private_key(
+                key_file.read(),
+                password=password.encode(),
+                backend=default_backend()
+            )
     return private_key
 # ------------------------------------------------------------------------------
 
@@ -102,6 +127,15 @@ def generate_session_keypair():
     establishment ritual, does not save the keypair to disk. """
     # TODO: Do the parameters need to be shared between the two peers?
     # Should the server store them? If cryptography problems occur, try this.
+    # Update: cryptography problems have occureed.
+    # TODO: Yes, this needs to be changed.
+    # 1. Initator generates dh.parameters object, gets numbers from parameter_numbers()
+    # method, then serializes it with parameter_bytes() method.
+    # 2. The parameters need to be sent in the generate_session_key message to the recipient
+    # 3. The recipient needs to laod the parameters and generate a private+public keypair
+    # using the parameters received.
+    # 4. both parties need to then generate the shared secret using derive_shared_key, with
+    # the local private key, and peer public key, generated under the shared parameters.
     parameters = dh.generate_parameters(generator=2, key_size=2048)
     private_key = parameters.generate_private_key()
     public_key = private_key.public_key()

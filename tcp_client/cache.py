@@ -112,4 +112,4 @@ class ChatCache:
         for msg in output_chat['history']:
             out += str(msg["msg_id"]) + " " + msg["sender"] + \
                       ": " + msg["message"] + "\n"
-        return out + "----------------------"
+        return out + "---------------------------------"

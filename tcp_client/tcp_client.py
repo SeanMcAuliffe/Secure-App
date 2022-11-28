@@ -20,7 +20,14 @@ def main():
 
     # Run the chat client
     chat_client = TerminalChat(tx, rx_buffer, rx_socket, host_ip)
-    chat_client.run()
+    try:
+        chat_client.run()
+    except Exception as e:
+        chat_client.rx_socket.stop()
+        chat_client.rx_thread.join()
+        raise e
+    tx.close()
+    context.term()
 # ------------------------------------------------------------------------------
 
 

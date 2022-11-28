@@ -4,6 +4,7 @@ import json
 from cache import ChatCache
 import encryption
 import threading
+from base64 import b64encode, b64decode
 
 SERVER_IP = "127.0.0.1:5000"
 
@@ -96,7 +97,7 @@ class TerminalChat:
         except KeyboardInterrupt:
             return
         encryption.generate_static_keypair(username, password)
-        public = encryption.load_pubkey_as_bytes(username)
+        public = encryption.load_pubkey_as_bytes(username).decode()
         data = {"username": username, "password": password, "pubkey": public}
         r = self.http_request("POST", "register", data)
         if r is not None and r.status_code == 200:
@@ -153,8 +154,6 @@ class TerminalChat:
         """ Sends a request to the server to log out the user.
         Triggers the client to save the message history to disk
         and exit. """
-        # self.clear_screen() # TODO: uncomment this when no longer debugging
-        print("*** Logout of SecureChat™ ***")
         r = self.http_request("GET", "logout")
         if r is not None and r.status_code == 200:
             print("Logout successful.")
@@ -163,6 +162,7 @@ class TerminalChat:
             self.cookie = None
             self.save_messages() # TODO: Think about where save should happen
             self.rx_socket.stop()
+            self.rx_thread.join()
             self.exit_client(None)
         elif r is not None and r.status_code != 200:
             print("Logout failed.")
@@ -233,6 +233,8 @@ class TerminalChat:
         if not self.cache.chat_exists(chat_id):
             print("Chat does not exist.")
             return
+        if self.active_chat == chat_id:
+            self.active_chat = None
         rc = self.cache.delete_chat(chat_id)
         if rc:
             print("Chat deleted successfully.")
@@ -302,11 +304,12 @@ class TerminalChat:
             print("Warning: session key was not destroyed after last use.")
             self.session_key = None
         nonce = os.urandom(32)
+        print(f"Nonce 1: {nonce}")
         peer_pubkey = encryption.load_pubkey_from_bytes(pubkey)
         encrypted_nonce = encryption.encrypt_message(nonce, peer_pubkey)
         # 2. Send the encrypted nonce to the peer with our user name so that they can also verify us
-        msg = b"challenge " + self.username.encode() + b" " + encrypted_nonce
-        self.send_message(msg)
+        msg = b"challenge " + self.username.encode() + b" " + b64encode(encrypted_nonce)
+        self.tx.send(msg)
         # 3. Receive decrypted nonce from peer, verify, receieve challenge
         # TODO: There is a problem here, the socket is blocking,
         # so if the peer never responds, this will hang forever
@@ -322,13 +325,13 @@ class TerminalChat:
         if resp[1] != self.cache.active_user(self.active_chat).encode():
             print("Response from invalid peer.")
             return
-        if resp[2] != nonce:
+        if b64decode(resp[2]) != nonce:
             print("Peer failed to decrypt nonce.")
             return
         # 4. Decrypt challenge, M, with private key and send back to peer
         local_privkey = encryption.load_static_privkey(self.username, self.password)
-        decrypted_challenge = encryption.decrypt_message(resp[3], local_privkey)
-        self.tx.send(b"handhsake " + decrypted_challenge)
+        decrypted_challenge = encryption.decrypt_message(b64decode(resp[3]), local_privkey)
+        self.tx.send(b"handshake " + b64encode(decrypted_challenge))
         handshake_resp = self.tx.recv()
         if handshake_resp != b"handshake_success":
             print("Handshake failed.")
@@ -339,7 +342,7 @@ class TerminalChat:
         session_priv, session_pub = encryption.generate_session_keypair()
         session_pubkey_bytes = encryption.encode_pubkey_as_bytes(session_pub)
         # 2. Receive new session public key of peer
-        self.tx.send(b"generate_session_key " + session_pubkey_bytes)
+        self.tx.send(b"generate_session_key " + b64encode(session_pubkey_bytes))
         session_response = self.tx.recv().split(b" ")
         if len(session_response) != 2:
             print("Invalid response from peer.")
@@ -347,13 +350,13 @@ class TerminalChat:
         if session_response[0] != b"agreed ":
             print("Invalid response from peer.")
             return
-        peer_session_pub = encryption.load_pubkey_from_bytes(session_response[1])
+        peer_session_pub = encryption.load_pubkey_from_bytes(b64decode(session_response[1]))
         # 3. Derive shared key from local session private key and peer session public key
         self.session_key = encryption.derive_shared_key(session_priv, peer_session_pub)
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
-    def receive_message(self, net_location):
+    def receive_message(self):
         """ Handles incoming chat messages from the buffer. Messages have already
         been authenticated and decrypted by RxSocket thread, so this function
         only needs to pass them on to the local cache. """
@@ -386,13 +389,13 @@ class TerminalChat:
             print("Invalid recipient.")
             return
         # Get recipient IP + port from server
-        r = self.http_request("GET", "create_session",
+        r = self.http_request("POST", "create_session",
                               {"recipient_username": recipient})
         if r is not None and r.status_code == 200:
-            recipient_data = json.loads(r.json)
+            recipient_data = r.json()
             recipient_ip = recipient_data["ip"]
             recipient_port = str(recipient_data["port"])
-            recipient_pubkey = recipient_data["pubkey"]
+            recipient_pubkey = recipient_data["pubkey"].encode()
         else:
             print("Failed to send message; could not find recipient IP.")
             return
@@ -402,14 +405,14 @@ class TerminalChat:
         if self.session_key is None:
             print("Failed to send message; could not establish session.")
             self.session_key = None
-            self.tx.disconnect()
+            self.tx.disconnect(f"tcp://{recipient_ip}:{recipient_port}")
             return
         # Encrypt message under session key
         encrypted_msg = encryption.encrypt_message(msg, self.session_key)
         # Sign message with session key hash
         signature = encryption.sign_message(encrypted_msg, self.session_key)
         # Send message to recipient
-        self.tx.send(b"message " + encrypted_msg + b" " + signature)
+        self.tx.send(b"message " + b64encode(encrypted_msg) + b" " + b64encode(signature))
         resp = self.tx.recv()
         if resp != b"ok":
             print(f"Message was not delivered to {recipient}.")
@@ -420,7 +423,7 @@ class TerminalChat:
         if not rc:
             print("Failed to add message to cache.")
         self.session_key = None
-        self.tx.disconnect()
+        self.tx.disconnect(f"tcp://{recipient_ip}:{recipient_port}")
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -429,7 +432,10 @@ class TerminalChat:
         into memory and decrypts it. Message history is stored on
         disk by username, and is only retrievable after a user has
         authenticated with the server. """
-        filename = "./chats/" + self.username + ".json"
+        if os.name == "nt":
+            filename = "tcp_client\\chats\\" + self.username + ".json"
+        else:
+            filename = "tcp_client/chats/" + self.username + ".json"
         if os.path.isfile(filename):
             with open(filename, "r") as f:
                 # TODO: Decrypt messages
@@ -442,7 +448,10 @@ class TerminalChat:
     def save_messages(self):
         """ When user logs out, or client exits, encrypt and save
         message history changes that have accumulated to the disk. """
-        filename = "./chats/" + self.username + ".json"
+        if os.name == "nt":
+            filename = "tcp_client\\chats\\" + self.username + ".json"
+        else:
+            filename = "tcp_client/chats/" + self.username + ".json"
         with open(filename, "w") as f:
             # TODO: Encrypt messages
             f.write(json.dumps(self.cache.history))
@@ -456,6 +465,7 @@ class TerminalChat:
             print("\nUser: None")
         if self.active_chat is not None:
             print(f"Active Chat: {self.cache.header_by_id(self.active_chat)}")
+            print(self.cache.display_chat(self.active_chat))
         else:
             print("Active Chat: None")
 
@@ -493,6 +503,7 @@ class TerminalChat:
             print("\nERROR: Could not connect to SecureChat™ server.\n")
         while self.ongoing:
             try:
+                self.receive_message()
                 self.display_UI()
                 self.parse_command()
             except KeyboardInterrupt:
