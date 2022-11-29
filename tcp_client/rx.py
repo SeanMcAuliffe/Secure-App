@@ -5,6 +5,8 @@ import requests
 import json
 import encryption
 from base64 import b64encode, b64decode
+import hmac
+import hashlib
 
 SERVER_IP = "127.0.0.1:5000"
 
@@ -189,6 +191,12 @@ class RxSocket:
         client. """
         encrypted_msg = b64decode(msg[0])
         iv = b64decode(msg[1])
+        received_signature = b64decode(msg[2])
+        h = hmac.new(self.session_key, encrypted_msg, hashlib.sha256)
+        signature = h.digest()
+        if not hmac.compare_digest(received_signature, signature):
+            # Do something if the digest sent does not match
+            pass
         decrypted_msg = encryption.sym_decrypt_message(encrypted_msg, self.session_key, iv)
         # valid_signature = encryption.verify_signature(decrypted_msg, signature, self.peer_pubkey)
         # if not valid_signature:
