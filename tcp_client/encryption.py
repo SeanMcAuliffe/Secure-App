@@ -124,22 +124,14 @@ def load_static_privkey(username, password):
 # ------------------------------------------------------------------------------
 def generate_session_keypair():
     """ Generates a new asymmetric RSA keypair for use in a single session
-    establishment ritual, does not save the keypair to disk. """
-    # TODO: Do the parameters need to be shared between the two peers?
-    # Should the server store them? If cryptography problems occur, try this.
-    # Update: cryptography problems have occureed.
-    # TODO: Yes, this needs to be changed.
-    # 1. Initator generates dh.parameters object, gets numbers from parameter_numbers()
-    # method, then serializes it with parameter_bytes() method.
-    # 2. The parameters need to be sent in the generate_session_key message to the recipient
-    # 3. The recipient needs to laod the parameters and generate a private+public keypair
-    # using the parameters received.
-    # 4. both parties need to then generate the shared secret using derive_shared_key, with
-    # the local private key, and peer public key, generated under the shared parameters.
+    establishment ritual, does not save the keypair to disk. Also returns
+    the parameter numbers used to generate the keypair, which also need to
+    be sent to the recipient. """
     parameters = dh.generate_parameters(generator=2, key_size=2048)
     private_key = parameters.generate_private_key()
     public_key = private_key.public_key()
-    return private_key, public_key
+    parameter_numbers = parameters.parameter_numbers()
+    return private_key, public_key, parameter_numbers.p, parameter_numbers.g
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------

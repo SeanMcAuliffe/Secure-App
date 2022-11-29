@@ -292,24 +292,29 @@ class TerminalChat:
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
-    def establish_session(self, pubkey):
+    def establish_session(self, peer_static_pubkey):
         """ Handles the process of establishing a secure session when
         initated locally by the user. The counterpart to this function
         is the accept_session() function in the RxSocket thread, which
         handles the process of completeting the challenge and generating
         the session key. """
-        # STEP ONE: AUTHENTICATE NETWORK LOCATION IS CONTROLLED BY USER
-        # 1. Encrypt a random nonce with the public key
+        
+        # This should be none at the beginning of a new session
         if self.session_key is not None:
             print("Warning: session key was not destroyed after last use.")
             self.session_key = None
+        
+        # STEP ONE: AUTHENTICATE NETWORK LOCATION IS CONTROLLED BY USER
+        # 1. Encrypt a random nonce with the peers static public key
         nonce = os.urandom(32)
-        print(f"Nonce 1: {nonce}")
-        peer_pubkey = encryption.load_pubkey_from_bytes(pubkey)
+        peer_pubkey = encryption.load_pubkey_from_bytes(peer_static_pubkey)
         encrypted_nonce = encryption.encrypt_message(nonce, peer_pubkey)
-        # 2. Send the encrypted nonce to the peer with our user name so that they can also verify us
+
+        # 2. Send the encrypted nonce to the peer with our user name
+        # so that they can also verify us
         msg = b"challenge " + self.username.encode() + b" " + b64encode(encrypted_nonce)
         self.tx.send(msg)
+
         # 3. Receive decrypted nonce from peer, verify, receieve challenge
         # TODO: There is a problem here, the socket is blocking,
         # so if the peer never responds, this will hang forever
@@ -328,6 +333,7 @@ class TerminalChat:
         if b64decode(resp[2]) != nonce:
             print("Peer failed to decrypt nonce.")
             return
+
         # 4. Decrypt challenge, M, with private key and send back to peer
         local_privkey = encryption.load_static_privkey(self.username, self.password)
         decrypted_challenge = encryption.decrypt_message(b64decode(resp[3]), local_privkey)
@@ -336,13 +342,25 @@ class TerminalChat:
         if handshake_resp != b"handshake_success":
             print("Handshake failed.")
             return
+        
+        # At this point both peers are authenticated to each other
+
         # STEP TWO: GENERATE NEW SESSION KEY PAIR AND DERIVE SHARED KEY
-        # 1. Generate local session keypair, send request for peer to 
-        # generate new session key pair
-        session_priv, session_pub = encryption.generate_session_keypair()
+        # 1. Generate local session keypair, save parameters used to generate
+        session_priv, session_pub, prime, generator = encryption.generate_session_keypair()
+        public_number = session_pub.public_numbers().y
+
         session_pubkey_bytes = encryption.encode_pubkey_as_bytes(session_pub)
+
+        # 2. Send peer cmd to generate session keypair, provide our parameters
+
         # 2. Receive new session public key of peer
-        self.tx.send(b"generate_session_key " + b64encode(session_pubkey_bytes))
+        self.tx.send(b"generate_session_key " +
+                    b64encode(prime) + b" " +
+                    b64encode(generator) + b" " +
+                    b64encode(public_number))
+    
+        # Receive response indicating success
         session_response = self.tx.recv().split(b" ")
         if len(session_response) != 2:
             print("Invalid response from peer.")
@@ -350,6 +368,8 @@ class TerminalChat:
         if session_response[0] != b"agreed ":
             print("Invalid response from peer.")
             return
+        
+        # Derive shared key
         peer_session_pub = encryption.load_pubkey_from_bytes(b64decode(session_response[1]))
         # 3. Derive shared key from local session private key and peer session public key
         self.session_key = encryption.derive_shared_key(session_priv, peer_session_pub)
