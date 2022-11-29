@@ -128,7 +128,6 @@ class RxSocket:
         initated by a remote peer client. The establish_session() method
         in TerminalChat initiates the session handhshake process when a
         peer client sends a message. """
-        print("Accepting session")
         # 1. we will need to get the sender's public key from server
         sender = challenge[0]
         # 2. we need to decrypt N with local private key
@@ -163,7 +162,6 @@ class RxSocket:
 
     # --------------------------------------------------------------------------
     def complete_handshake(self, handshake):
-        print("Completing handshake")
         recieved_monce = b64decode(handshake[0])
         if recieved_monce != self.monce:
             raise RuntimeError("Sender failed authentication challenge")
@@ -174,7 +172,6 @@ class RxSocket:
 
     # --------------------------------------------------------------------------
     def generate_session_key(self, handshake):
-        print("Generating session key")
         peer_prime = int(b64decode(handshake[0]))
         peer_generator = int(b64decode(handshake[1]))
         peer_pubnum = int(b64decode(handshake[2]))
@@ -190,7 +187,6 @@ class RxSocket:
     def receive_message(self, msg):
         """ Handles the process of receiving a message from a remote peer
         client. """
-        print("Receiving message")
         encrypted_msg = b64decode(msg[0])
         iv = b64decode(msg[1])
         decrypted_msg = encryption.sym_decrypt_message(encrypted_msg, self.session_key, iv)
@@ -208,4 +204,5 @@ class RxSocket:
         self.session_key = None
         self.monce = None
         self.phase = 0
+        print("Received new message. Type 'list' to display.")
     # --------------------------------------------------------------------------
