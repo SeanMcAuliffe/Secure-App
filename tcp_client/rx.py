@@ -195,13 +195,10 @@ class RxSocket:
         h = hmac.new(self.session_key, encrypted_msg, hashlib.sha256)
         signature = h.digest()
         if not hmac.compare_digest(received_signature, signature):
-            # Do something if the digest sent does not match
-            pass
+            print("Message signature did not match.")
+            self.rx.send(b"Fatal error.")
+            return
         decrypted_msg = encryption.sym_decrypt_message(encrypted_msg, self.session_key, iv)
-        # valid_signature = encryption.verify_signature(decrypted_msg, signature, self.peer_pubkey)
-        # if not valid_signature:
-        #     raise RuntimeError("Message was recieved under valid session, with \
-        #                         invalid signature.")
         msg_to_save = self.sender_username.decode() + " " + decrypted_msg
         self.buffer.semaphore.acquire()
         self.buffer.add_msg(msg_to_save)
