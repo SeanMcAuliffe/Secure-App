@@ -6,6 +6,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.primitives.asymmetric import dh
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import os
 
 # https://nitratine.net/blog/post/asymmetric-encryption-and-decryption-in-python/
@@ -135,10 +136,25 @@ def generate_session_keypair():
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
+def generate_session_keypair_from_numbers(p, g, y):
+    """ Generates a new asymmetric RSA keypair for use in a single session
+    establishment ritual, does not save the keypair to disk. Also returns
+    the parameter numbers used to generate the keypair, which also need to
+    be sent to the recipient. """
+    pn = dh.DHParameterNumbers(p, g)
+    peer_public_numbers = dh.DHPublicNumbers(y, pn)
+    parameters = pn.parameters()
+    private_key = parameters.generate_private_key()
+    public_key = private_key.public_key()
+    return private_key, public_key, peer_public_numbers.public_key()
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
 def derive_shared_key(local_private_key, peer_public_key):
     """ Generates a single-use shared key (symmetric, using Fernet) for
     use in a single message exhange. """
     shared_key = local_private_key.exchange(peer_public_key)
+    # TODO: What is derivation for
     derived_key = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
@@ -149,7 +165,7 @@ def derive_shared_key(local_private_key, peer_public_key):
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-def encrypt_message(message: bytes, key):
+def asym_encrypt_message(message: bytes, key):
     """ Encryptes a message encoded as bytes under the provided key. """
     encrypt_message = key.encrypt(
         message,
@@ -163,7 +179,7 @@ def encrypt_message(message: bytes, key):
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-def decrypt_message(message, key):
+def asym_decrypt_message(message, key):
     """ Decryptes a message under the provided key, must be the corresponding
     key to the one used to encrypt the message. """
     plaintext_message = key.decrypt(
@@ -178,9 +194,37 @@ def decrypt_message(message, key):
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-def sign_message(message, shared_session_key):
+def pad_message(message):
+    """ Pads a message to a multiple of 16 bytes, required for AES 
+    encryption. """
+    return message + "\0" * (16 - len(message) % 16)
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+def sym_encrypt_message(message: bytes, key):
+    """ Encryptes a message encoded as bytes under the provided key. """
+    message = pad_message(message).encode()
+    iv = os.urandom(16)
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    encryptor = cipher.encryptor()
+    cipher_text = encryptor.update(message) + encryptor.finalize()
+    return cipher_text, iv
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+def sym_decrypt_message(message, key, iv):
+    """ Decryptes a message under the provided key, must be the corresponding
+    key to the one used to encrypt the message. """
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    decryptor = cipher.decryptor()
+    plaintext_message = decryptor.update(message) + decryptor.finalize()
+    return plaintext_message.decode()
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+def sign_message(message, private_key):
     """ Generates a hash of the key and signs the provided message. """
-    signature = shared_session_key.sign(
+    signature = private_key.sign(
         message,
         padding.PSS(
             mgf=padding.MGF1(hashes.SHA256()),
@@ -192,10 +236,10 @@ def sign_message(message, shared_session_key):
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
-def verify_signature(message, signature, shared_session_key):
+def verify_signature(message, signature, public_key):
     """ Verifies that the provided signature matches the hash of the
     shared key. """
-    shared_public = shared_session_key.public_key()
+    shared_public = public_key.public_key()
     try:
         shared_public.verify(
             signature,

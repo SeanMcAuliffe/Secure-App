@@ -5,6 +5,7 @@ from cache import ChatCache
 import encryption
 import threading
 from base64 import b64encode, b64decode
+import sys
 
 SERVER_IP = "127.0.0.1:5000"
 
@@ -298,17 +299,17 @@ class TerminalChat:
         is the accept_session() function in the RxSocket thread, which
         handles the process of completeting the challenge and generating
         the session key. """
-        
+
         # This should be none at the beginning of a new session
         if self.session_key is not None:
             print("Warning: session key was not destroyed after last use.")
             self.session_key = None
-        
+
         # STEP ONE: AUTHENTICATE NETWORK LOCATION IS CONTROLLED BY USER
         # 1. Encrypt a random nonce with the peers static public key
         nonce = os.urandom(32)
         peer_pubkey = encryption.load_pubkey_from_bytes(peer_static_pubkey)
-        encrypted_nonce = encryption.encrypt_message(nonce, peer_pubkey)
+        encrypted_nonce = encryption.asym_encrypt_message(nonce, peer_pubkey)
 
         # 2. Send the encrypted nonce to the peer with our user name
         # so that they can also verify us
@@ -336,13 +337,13 @@ class TerminalChat:
 
         # 4. Decrypt challenge, M, with private key and send back to peer
         local_privkey = encryption.load_static_privkey(self.username, self.password)
-        decrypted_challenge = encryption.decrypt_message(b64decode(resp[3]), local_privkey)
+        decrypted_challenge = encryption.asym_decrypt_message(b64decode(resp[3]), local_privkey)
         self.tx.send(b"handshake " + b64encode(decrypted_challenge))
         handshake_resp = self.tx.recv()
         if handshake_resp != b"handshake_success":
             print("Handshake failed.")
             return
-        
+
         # At this point both peers are authenticated to each other
 
         # STEP TWO: GENERATE NEW SESSION KEY PAIR AND DERIVE SHARED KEY
@@ -350,29 +351,25 @@ class TerminalChat:
         session_priv, session_pub, prime, generator = encryption.generate_session_keypair()
         public_number = session_pub.public_numbers().y
 
-        session_pubkey_bytes = encryption.encode_pubkey_as_bytes(session_pub)
-
         # 2. Send peer cmd to generate session keypair, provide our parameters
-
-        # 2. Receive new session public key of peer
         self.tx.send(b"generate_session_key " +
-                    b64encode(prime) + b" " +
-                    b64encode(generator) + b" " +
-                    b64encode(public_number))
-    
+                    b64encode(str(prime).encode()) + b" " +
+                    b64encode(str(generator).encode()) + b" " +
+                    b64encode(str(public_number).encode()))
+
         # Receive response indicating success
         session_response = self.tx.recv().split(b" ")
         if len(session_response) != 2:
-            print("Invalid response from peer.")
+            print("Invalid response from peer, insufficient data.")
             return
-        if session_response[0] != b"agreed ":
-            print("Invalid response from peer.")
+        if session_response[0] != b"agreed":
+            print("Invalid response from peer, improper response.")
             return
-        
-        # Derive shared key
+
+        # Extract peer public key and derive shared key
         peer_session_pub = encryption.load_pubkey_from_bytes(b64decode(session_response[1]))
-        # 3. Derive shared key from local session private key and peer session public key
         self.session_key = encryption.derive_shared_key(session_priv, peer_session_pub)
+        return session_priv
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -383,9 +380,9 @@ class TerminalChat:
         if self.msg_buffer.is_empty():
             return
         # msg is of form "<sender> <msg>"
-        self.buffer.semaphore.acquire()
+        self.msg_buffer.semaphore.acquire()
         msg = self.msg_buffer.get_msg()
-        self.buffer.semaphore.release()
+        self.msg_buffer.semaphore.release()
         delimiter = msg.find(" ")
         sender = msg[0:delimiter]
         msg = msg[delimiter+1:]
@@ -421,18 +418,18 @@ class TerminalChat:
             return
         # Challenge recipient to establish session
         self.tx.connect(f"tcp://{recipient_ip}:{recipient_port}")
-        self.establish_session(recipient_pubkey)
+        private_key = self.establish_session(recipient_pubkey)
         if self.session_key is None:
             print("Failed to send message; could not establish session.")
             self.session_key = None
             self.tx.disconnect(f"tcp://{recipient_ip}:{recipient_port}")
             return
         # Encrypt message under session key
-        encrypted_msg = encryption.encrypt_message(msg, self.session_key)
+        encrypted_msg, iv = encryption.sym_encrypt_message(msg, self.session_key)
         # Sign message with session key hash
-        signature = encryption.sign_message(encrypted_msg, self.session_key)
+       # signature = encryption.sign_message(encrypted_msg, private_key)
         # Send message to recipient
-        self.tx.send(b"message " + b64encode(encrypted_msg) + b" " + b64encode(signature))
+        self.tx.send(b"message " + b64encode(encrypted_msg) + b" " + b64encode(iv))
         resp = self.tx.recv()
         if resp != b"ok":
             print(f"Message was not delivered to {recipient}.")

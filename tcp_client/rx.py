@@ -35,6 +35,7 @@ class RxSocket:
         self.peer_pubkey = None
         self.monce = None # M nonce
         self.sender_username = None
+        self.peer_pubkey = None
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -91,13 +92,7 @@ class RxSocket:
                     raise RuntimeError("Received challenge in wrong order.")
 
             elif incoming_msg[0] == b"handshake":
-                if not int(self.phase) != 1:
-                    #self.rx.send(b"Fatal error.")
-                    # raise RuntimeError("Received handshake out of phase. Phase: " + str(self.phase))
-                    print(f"Phase should be 1, but phase is {self.phase}")
-                    self.complete_handshake(incoming_msg[1:])
-                else:
-                    self.complete_handshake(incoming_msg[1:])
+                self.complete_handshake(incoming_msg[1:])
 
             elif incoming_msg[0] == b"generate_session_key":
                 if self.phase != 2:
@@ -133,6 +128,7 @@ class RxSocket:
         initated by a remote peer client. The establish_session() method
         in TerminalChat initiates the session handhshake process when a
         peer client sends a message. """
+        print("Accepting session")
         # 1. we will need to get the sender's public key from server
         sender = challenge[0]
         # 2. we need to decrypt N with local private key
@@ -153,22 +149,21 @@ class RxSocket:
 
         # 2.
         local_privkey = encryption.load_static_privkey(self.username, self.password)
-        decrypted_N = encryption.decrypt_message(N, local_privkey)
-        print(f"nonce 2: {decrypted_N}")
+        decrypted_N = encryption.asym_decrypt_message(N, local_privkey)
 
         # 3.
         pubkey = encryption.load_pubkey_from_bytes(sender_pubkey)
-        encrypted_M = encryption.encrypt_message(self.monce, pubkey)
+        encrypted_M = encryption.asym_encrypt_message(self.monce, pubkey)
 
         # 4. Send response to sender
         response = b"response " + self.username.encode() + b" " + b64encode(decrypted_N) + b" " + b64encode(encrypted_M)
         self.rx.send(response)
         self.phase = 1
-        print("Receiving thread has process challenge and responded.")
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
     def complete_handshake(self, handshake):
+        print("Completing handshake")
         recieved_monce = b64decode(handshake[0])
         if recieved_monce != self.monce:
             raise RuntimeError("Sender failed authentication challenge")
@@ -179,27 +174,31 @@ class RxSocket:
 
     # --------------------------------------------------------------------------
     def generate_session_key(self, handshake):
-        peer_pubkey_bytes = b64decode(handshake[0])
-        peer_pubkey = encryption.load_pubkey_from_bytes(peer_pubkey_bytes)
-        local_privkey, local_pubkey = encryption.generate_session_keypair()
+        print("Generating session key")
+        peer_prime = int(b64decode(handshake[0]))
+        peer_generator = int(b64decode(handshake[1]))
+        peer_pubnum = int(b64decode(handshake[2]))
+        local_privkey, local_pubkey, peer_pubkey = encryption.generate_session_keypair_from_numbers(peer_prime, peer_generator, peer_pubnum)
         local_pubkey_bytes = encryption.encode_pubkey_as_bytes(local_pubkey)
         self.session_key = encryption.derive_shared_key(local_privkey, peer_pubkey)
         self.rx.send(b"agreed " + b64encode(local_pubkey_bytes))
         self.phase = 3
+        self.peer_pubkey = peer_pubkey
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
     def receive_message(self, msg):
         """ Handles the process of receiving a message from a remote peer
         client. """
+        print("Receiving message")
         encrypted_msg = b64decode(msg[0])
-        signature = b64decode(msg[1])
-        decrypted_msg = encryption.decrypt_message(encrypted_msg, self.session_key)
-        valid_signature = encryption.verify_signature(decrypted_msg, signature)
-        if not valid_signature:
-            raise RuntimeError("Message was recieved under valid session, with \
-                                invalid signature.")
-        msg_to_save = self.sender_username + " " + decrypted_msg.decode()
+        iv = b64decode(msg[1])
+        decrypted_msg = encryption.sym_decrypt_message(encrypted_msg, self.session_key, iv)
+        # valid_signature = encryption.verify_signature(decrypted_msg, signature, self.peer_pubkey)
+        # if not valid_signature:
+        #     raise RuntimeError("Message was recieved under valid session, with \
+        #                         invalid signature.")
+        msg_to_save = self.sender_username.decode() + " " + decrypted_msg
         self.buffer.semaphore.acquire()
         self.buffer.add_msg(msg_to_save)
         self.buffer.semaphore.release()
