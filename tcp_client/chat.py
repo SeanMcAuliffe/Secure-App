@@ -458,9 +458,10 @@ class TerminalChat:
         else:
             filename = "tcp_client/chats/" + self.username + ".json"
         if os.path.isfile(filename):
-            with open(filename, "r") as f:
-                # TODO: Decrypt messages
-                self.cache = ChatCache(json.load(f))
+            with open(filename, "rb") as f:
+                symkey, iv = encryption.load_static_symkey(self.username, self.password)
+                decrypted = encryption.sym_decrypt_message_rm_padding(f.read(), symkey, iv)
+                self.cache = ChatCache(json.loads(decrypted))
         else:
             self.cache = ChatCache()
     # --------------------------------------------------------------------------
@@ -473,9 +474,10 @@ class TerminalChat:
             filename = "tcp_client\\chats\\" + self.username + ".json"
         else:
             filename = "tcp_client/chats/" + self.username + ".json"
-        with open(filename, "w") as f:
-            # TODO: Encrypt messages
-            f.write(json.dumps(self.cache.history))
+        with open(filename, "wb") as f:
+            symkey, iv = encryption.load_static_symkey(self.username, self.password)
+            encrypted = encryption.sym_iv_encrypt_message(json.dumps(self.cache.history).encode(), symkey, iv)
+            f.write(encrypted)
     # --------------------------------------------------------------------------
 
     def display_UI(self):

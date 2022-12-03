@@ -47,6 +47,44 @@ def generate_static_keypair(username, password):
     else:
         with open("tcp_client/keys/" + username + ".pub", "wb") as key_file:
             key_file.write(pub)
+
+    # Generate symmetric key for encrypting message history, save it encrypted
+    # under user static keys.
+    symkey = os.urandom(32)
+    iv = os.urandom(16)
+    symkeyout = bytearray(48)
+    symkeyout[0:32] = symkey
+    symkeyout[32:48] = iv
+
+    encrypted_symkey = asym_encrypt_message(bytes(symkeyout), public_key)
+
+    if os.name == 'nt':
+        with open("tcp_client\\keys\\" + username + ".sym", "wb") as key_file:
+            key_file.write(encrypted_symkey)
+    else:
+        with open("tcp_client/keys/" + username + ".sym", "wb") as key_file:
+            key_file.write(encrypted_symkey)
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+def load_static_symkey(username, password):
+    """ Loads a keypair from disk, using the username and password provided,
+    to be loaded by the TerminalClient upon user authentication. """
+    input = None
+    if os.name == "nt":
+        with open("tcp_client\\keys\\" + username + ".sym", "rb") as key_file:
+            input = key_file.read()
+    else:
+        with open("tcp_client/keys/" + username + ".sym", "rb") as key_file:
+            input = key_file.read()
+    # load the users saatic private key
+    private_key = load_static_privkey(username, password)
+    # decrypt the symket using the private key
+    symkey = asym_decrypt_message(input, private_key)
+    # unpack the key and the iv from the symkey
+    key = symkey[0:32]
+    iv = symkey[32:48]
+    return key, iv
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
@@ -201,6 +239,19 @@ def pad_message(message):
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
+def pad_message_bytes(message):
+    """ Pads a message to a multiple of 16 bytes, required for AES 
+    encryption. """
+    return message + b"\0" * (16 - len(message) % 16)
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+def remove_padding_bytes(message):
+    """ Removes padding from a message. """
+    return message.rstrip(b"\0")
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
 def sym_encrypt_message(message: bytes, key):
     """ Encryptes a message encoded as bytes under the provided key. """
     message = pad_message(message).encode()
@@ -212,12 +263,33 @@ def sym_encrypt_message(message: bytes, key):
 # ------------------------------------------------------------------------------
 
 # ------------------------------------------------------------------------------
+def sym_iv_encrypt_message(message: bytes, key, iv):
+    """ Encryptes a message encoded as bytes under the provided key and IV. """
+    message = pad_message_bytes(message)
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    encryptor = cipher.encryptor()
+    cipher_text = encryptor.update(message) + encryptor.finalize()
+    return cipher_text
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
 def sym_decrypt_message(message, key, iv):
     """ Decryptes a message under the provided key, must be the corresponding
     key to the one used to encrypt the message. """
     cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
     decryptor = cipher.decryptor()
     plaintext_message = decryptor.update(message) + decryptor.finalize()
+    return plaintext_message.decode()
+# ------------------------------------------------------------------------------
+
+# ------------------------------------------------------------------------------
+def sym_decrypt_message_rm_padding(message, key, iv):
+    """ Decryptes a message under the provided key, must be the corresponding
+    key to the one used to encrypt the message. """
+    cipher = Cipher(algorithms.AES(key), modes.CBC(iv))
+    decryptor = cipher.decryptor()
+    plaintext_message = decryptor.update(message) + decryptor.finalize()
+    plaintext_message = remove_padding_bytes(plaintext_message)
     return plaintext_message.decode()
 # ------------------------------------------------------------------------------
 
