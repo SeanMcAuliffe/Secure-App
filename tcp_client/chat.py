@@ -402,7 +402,7 @@ class TerminalChat:
         7. Send message to recipient
         8. Delete session key
         9. Add sent message to local cache of chat history """
-        msg = "".join(args)
+        msg = " ".join(args)
         recipient = self.cache.active_user(self.active_chat)
         if recipient is None:
             print("Invalid recipient.")
