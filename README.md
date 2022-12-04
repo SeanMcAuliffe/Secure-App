@@ -8,6 +8,9 @@ The security specification design process can be seen in tickets labelled design
 
 ## Design Overview
 
+**Demo Video**  
+https://www.youtube.com/watch?v=2pSsXbRunho
+
 **Architecture**  
 There are two components of the chat system, clients and a server. The server is used to 
 store the credentials of user accounts, and to allow clients to login. The client cannot decrypt its
