@@ -1,4 +1,0 @@
-The legacy client was designed around a chat implementation purely on top 
-of HTTP. We decided this would not work well, since there is no way of 
-establishing a session between two users without both users making a HTTP 
-request at to start a session at ~ the same time.
