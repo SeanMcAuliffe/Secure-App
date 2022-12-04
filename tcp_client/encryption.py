@@ -9,6 +9,8 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import os
 
+# The functions in this file have been adapted from the library documentation,
+# See the sources below.
 # https://nitratine.net/blog/post/asymmetric-encryption-and-decryption-in-python/
 # https://cryptography.io/en/latest/hazmat/primitives/asymmetric/dh/
 
