@@ -9,6 +9,8 @@ import sys
 import hmac
 import hashlib
 
+# In reality, this would be in a config file, and
+# would point to a DNS name.
 SERVER_IP = "127.0.0.1:5000"
 
 
@@ -21,19 +23,17 @@ class TerminalChat:
     def __init__(self, tx, msg_buffer, rx_socket, host_ip):
         self.tx = tx # zmq socket for transmitting messages
         self.msg_buffer = msg_buffer # wrapper around a LIFO queue
-        self.rx_socket = rx_socket
+        self.rx_socket = rx_socket # RxSocket object for receiving messages
         self.rx_thread = threading.Thread(target=self.rx_socket.run)
-        self.host_ip = host_ip
+        self.host_ip = host_ip # IP address of the host machine
         self.ongoing = True
         self.username = None
         self.password = None
         self.cookie = None
-        self.authenticated = False # is user logged in?
-        # Stores chat_id (int) of active chat within msg_history
-        self.active_chat = None
-        # Stores ChatCache Object for all chats
-        self.cache = None
-        self.session_key = None
+        self.authenticated = False # is user logged in to server?
+        self.active_chat = None # Chat ID of the active chat
+        self.cache = None # Stores ChatCache Object for all chats
+        self.session_key = None # Derived shared symmetric key
         self.commands = {
             "new_account": self.create_account,
             "login": self.login,
@@ -54,6 +54,7 @@ class TerminalChat:
     # --------------------------------------------------------------------------
     @staticmethod
     def clear_screen() -> None:
+        """ Clears the terminal screen. """
         if os.name == 'nt':
             _ = os.system('cls')
         else:
@@ -62,7 +63,6 @@ class TerminalChat:
 
     # --------------------------------------------------------------------------
     def http_request(self, method, endpoint, data=None):
-        # TODO: Encrypt all json data sent to the server
         """ Wrapper to send an HTTP request to the server. """
         url = f"http://{SERVER_IP}/{endpoint}"
         data = json.dumps(data, indent=4)
@@ -108,10 +108,8 @@ class TerminalChat:
         elif r is not None and r.status_code != 200:
             print("Account creation failed.")
             print(r.text)
-            # Todo; if failed, delete the keypair
         else:
             print("Server connection failed.")
-            # Todo; if failed, delete the keypair
     # --------------------------------------------------------------------------
 
     # --------------------------------------------------------------------------
@@ -205,6 +203,8 @@ class TerminalChat:
 
     # --------------------------------------------------------------------------
     def delete_msg(self, args):
+        """ Deletes a single message from the local ChatChat, from the active
+        chat. """
         if not self.authenticated:
             print("You must be logged in to delete messages.")
             return
@@ -247,6 +247,7 @@ class TerminalChat:
 
     # --------------------------------------------------------------------------
     def list_chats(self, args):
+        """ Prints a list of all stores chats for the authenticated user. """
         if not self.authenticated:
             print("You must be logged in to list chats.")
             return
@@ -255,6 +256,7 @@ class TerminalChat:
 
     # --------------------------------------------------------------------------
     def create_chat(self, args):
+        """ Creates a new chat with the specified recipient. """
         if not self.authenticated:
             print("You must be logged in to create chats.")
             return
@@ -319,9 +321,6 @@ class TerminalChat:
         self.tx.send(msg)
 
         # 3. Receive decrypted nonce from peer, verify, receieve challenge
-        # TODO: There is a problem here, the socket is blocking,
-        # so if the peer never responds, this will hang forever
-        # Look into this https://pyzmq.readthedocs.io/en/latest/api/zmq.html#poller
         resp = self.tx.recv().split(b" ")
         # Response is of the form: "response <username> <decrypted N> <encrypted M>"
         if len(resp) != 4:

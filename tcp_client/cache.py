@@ -1,8 +1,13 @@
 class ChatCache:
     """ Wrapper class for storing message history in memory,
-    provides methods for queirying and modifying the message history. """
+    provides methods for queirying and modifying the message history. 
+    The history is stored as a list of dictionaries, each dictionary
+    represents a chat. This history can easily be converted to a JSON
+    string for encryption and local storage. """
+
     def __init__(self, history: dict = None):
-        # msg_history is loaded from JSON file
+        """ Unpack the loaded history if it exists, otherwise, otherwise
+        initialize a new history. """
         self.history = history
         if history is not None:
             self.ids = [chat["chat_id"] for chat in self.history]
@@ -13,19 +18,23 @@ class ChatCache:
             self.history = []
 
     def refresh_list(self):
+        """ Refresh the history data after a change has occured. """
         self.ids = [chat["chat_id"] for chat in self.history]
         self.users = [chat["username"] for chat in self.history]
 
     def list(self):
+        """ Prints a list of the stored chats to the user"""
         out = "---- Chat List ----\n"
         for chat in self.history:
             out += str(chat["chat_id"]) + ": " + chat["username"] + "\n"
         return out + "-------------------"
 
     def chat_exists(self, chat_id):
+        """ Determines if a chat exists, identified by an intenger. """
         return chat_id in self.ids
 
     def get_chat_by_id(self, chat_id):
+        """ Return a chat object by its integer ID. """
         chat = None
         for c in self.history:
             if c["chat_id"] == chat_id:
@@ -34,6 +43,7 @@ class ChatCache:
         return chat
 
     def get_chat_by_username(self, username):
+        """ Return a chat object by its username field. """
         chat = None
         for c in self.history:
             if c["username"] == username:
@@ -42,18 +52,24 @@ class ChatCache:
         return chat
 
     def active_user(self, chat_id):
+        """ Return the username of the active chat, as identified
+        by its integer ID."""
         chat = self.get_chat_by_id(chat_id)
         if chat is None:
             return None
         return chat["username"]
 
     def header_by_id(self, chat_id):
+        """ Return a string representation of a chat, identified by
+        its integer ID. """
         chat = self.get_chat_by_id(chat_id)
         if chat is None:
             return None
         return f"({chat_id}) {chat['username']}"
 
     def new_chat(self, recipient):
+        """ Create a new chat object with a given recipient username, and
+        add the chat to the history."""
         if self.get_chat_by_username(recipient) is not None:
             return False # chat already exists
         new_chat = {"chat_id": len(self.ids),
@@ -66,6 +82,8 @@ class ChatCache:
         return True
 
     def add_message_by_id(self, chat_id, sender, message):
+        """ Add a <message: str>, <sender: str> to a locally stored chat,
+        as identified by its integer ID. """
         chat = self.get_chat_by_id(chat_id)
         if chat is None:
             return False
@@ -76,6 +94,8 @@ class ChatCache:
         return True
 
     def add_message_by_username(self, username, message):
+        """ Add a <message: str>, <sender: str> to a locally stored chat,
+        as identified by its username. """
         chat = self.get_chat_by_username(username)
         if chat is None:
             self.new_chat(username)
@@ -87,6 +107,8 @@ class ChatCache:
         return True
 
     def delete_chat(self, chat_id):
+        """ Removes a chat from the history, as identified by its integer
+        ID. """
         chat = self.get_chat_by_id(chat_id)
         if chat is None:
             return False
@@ -95,6 +117,8 @@ class ChatCache:
         return True
 
     def delete_message(self, chat_id, msg_id):
+        """ Deletes a single message, identified by its Message ID,
+        from the chat identified by its integer ID. """
         chat = self.get_chat_by_id(chat_id)
         if chat is None:
             return False
@@ -105,6 +129,8 @@ class ChatCache:
         return False
 
     def display_chat(self, chat_id):
+        """ Prints out the entire chat history of a chat, identified by 
+        its integer ID. """
         output_chat = self.get_chat_by_id(chat_id)
         if output_chat == None:
             return "Chat does not exist."
