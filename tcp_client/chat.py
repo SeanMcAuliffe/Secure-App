@@ -470,8 +470,12 @@ class TerminalChat:
         """ When user logs out, or client exits, encrypt and save
         message history changes that have accumulated to the disk. """
         if os.name == "nt":
+            if(not os.path.exists('tcp_client\\chats\\')):
+                os.mkdir('tcp_client\\chats\\')
             filename = "tcp_client\\chats\\" + self.username + ".json"
         else:
+            if(not os.path.exists('tcp_client/chats/')):
+                os.mkdir('tcp_client/chats/')
             filename = "tcp_client/chats/" + self.username + ".json"
         with open(filename, "wb") as f:
             symkey, iv = encryption.load_static_symkey(self.username, self.password)

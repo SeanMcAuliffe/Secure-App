@@ -31,9 +31,13 @@ def generate_static_keypair(username, password):
     encryption_algorithm=serialization.BestAvailableEncryption(password.encode())
     )
     if os.name == "nt":
+        if(not os.path.exists('tcp_client\\keys\\')):
+                os.mkdir('tcp_client\\keys\\')
         with open("tcp_client\\keys\\" + username + ".pem", "wb") as key_file:
             key_file.write(priv)
     else:
+        if(not os.path.exists('tcp_client/keys/')):
+                os.mkdir('tcp_client/keys/')
         with open("tcp_client/keys/" + username + ".pem", "wb") as key_file:
             key_file.write(priv)
 
