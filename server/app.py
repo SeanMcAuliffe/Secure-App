@@ -185,4 +185,4 @@ def retrieve_new_message():
     return jsonify(outbound)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()

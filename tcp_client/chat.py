@@ -429,7 +429,7 @@ class TerminalChat:
         encrypted_msg, iv = encryption.sym_encrypt_message(msg, self.session_key)
         # Sign message by creating hash based on session key and encrypted message
         # signature = encryption.sign_message(encrypted_msg, private_key)
-        h = hmac.new(self.session_key, encrypted_msg, hashlib.sha256)
+        h = hmac.new(hashlib.sha256(self.session_key).digest(), encrypted_msg, hashlib.sha256)
         signature = h.digest()
         # Send message to recipient
         self.tx.send(b"message " + b64encode(encrypted_msg) + b" " + b64encode(iv) + b" " + b64encode(signature))

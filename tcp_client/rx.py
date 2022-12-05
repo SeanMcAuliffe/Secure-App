@@ -209,7 +209,7 @@ class RxSocket:
         iv = b64decode(msg[1])
         received_signature = b64decode(msg[2])
         # Compute the signature, and verify it
-        h = hmac.new(self.session_key, encrypted_msg, hashlib.sha256)
+        h = hmac.new(hashlib.sha256(self.session_key).digest(), encrypted_msg, hashlib.sha256)
         signature = h.digest()
         if not hmac.compare_digest(received_signature, signature):
             print("Message signature did not match.")
