@@ -3,7 +3,8 @@
 **Group Members**
 - Sean McAuliffe, V00913346
 - Josh Morgan V00919952
-- `<add names>`
+- Naoya Pimlott,
+- Chris Wong, V00780634
 # Secure Messaging App
 The security specification design process can be seen in tickets labelled design. The DFD and design decisions will be documented in the project wiki. Below is a brief description of the system architecture, installation, and usage.
 
